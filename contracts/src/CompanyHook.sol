@@ -324,6 +324,8 @@ contract CompanyHook is IHooks, IUnlockCallback {
         address trader = (sender == router || sender == ethRouter) && hookData.length == 32
             ? abi.decode(hookData, (address))
             : tx.origin;
+        // A real buy is the buyer's activity for reward expiry (the buyer paid the fee; nobody can do it for them).
+        if (isBuy) CompanyToken(t).markActive(trader);
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
         uint256 quoteAmount = isBuy ? poolQuote + fee : (poolQuote > fee ? poolQuote - fee : 0);
         emit Trade(t, trader, isBuy, quoteAmount, tokenAmount, fee, sqrtPriceX96);

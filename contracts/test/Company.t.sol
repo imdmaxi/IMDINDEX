@@ -722,18 +722,33 @@ contract CompanyTest is Test {
         assertEq(imd.balanceOf(FEE_RECIPIENT) - feeImd, w);
     }
 
-    function test_expiry_giftsAndBuysDontResetTimer_claimDoes() public {
+    function test_expiry_giftDoesNotResetTimer_buyDoes_afterForfeiting() public {
         _buy(alice, 1_000e18);
         uint256 got = _buy(bob, 1_000e18);
         vm.warp(block.timestamp + 8 days);
         vm.prank(bob);
         token.transfer(alice, got / 2);
-        assertGt(token.expiredRewardsOf(alice, 0), 0, "gift is not activity");
+        uint256 expired = token.expiredRewardsOf(alice, 0);
+        assertGt(expired, 0, "gift is not activity");
+        uint256 withdrawable = token.withdrawableRewardOf(alice, 0);
         _buy(alice, 1e18);
-        assertGt(token.expiredRewardsOf(alice, 0), 0, "a buy is not activity (audit finding 4)");
-        vm.prank(alice);
-        token.claim();
-        assertEq(token.lastActive(alice), block.timestamp, "claim is activity");
+        assertEq(token.lastActive(alice), block.timestamp, "a buy is activity");
+        assertEq(token.expiredRewardsOf(alice, 0), 0);
+        assertEq(token.recycledHeld(0), expired, "but what had expired went to the protocol first");
+        assertGe(token.withdrawableRewardOf(alice, 0), withdrawable - expired);
+    }
+
+    function test_markActive_onlyHook() public {
+        vm.expectRevert(CompanyToken.NotHook.selector);
+        token.markActive(alice);
+    }
+
+    function test_expiry_sellIsActivity() public {
+        uint256 got = _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 6 days);
+        _sell(alice, got / 10);
+        assertEq(token.lastActive(alice), block.timestamp);
     }
 
     // ------------------------------------------------------------ flash-borrow guard

@@ -44,7 +44,7 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 1 | High: just-in-time liquidity inflates `maxConvert()` and makes sandwiching profitable | Fixed ceiling `MAX_ROUND_IMD` = 20 IMD per round; `test_audit1_jitLiquidityCannotInflateRound` replays the attack (round ≤ 20 IMD, attacker loses). |
 | 2 | Low: the USDG → stock hop is sized only by the IMD/USDG pool | `stockRoundLimit(asset)`: half the stock pool's fee × its virtual USDG depth, priced in IMD; `test_audit2_thinStockPoolLimitsItsRound`. |
 | 3 | Low: partial fills of IMD-specified swaps overpay the fee or Panic | Hook reverts `PartialFill` unless the swap filled completely; the event amount can't underflow; `test_audit3_partialFillIsRejected_fullFillWorks`. |
-| 4 | Low: anyone can reset any wallet's expiry timer by moving 1 wei out of the PoolManager | Receipts from the PoolManager no longer count as activity (buying alone isn't activity); `test_audit4_poolManagerPingDoesNotResetTimer`. |
+| 4 | Low: anyone can reset any wallet's expiry timer by moving 1 wei out of the PoolManager | Receipts from the PoolManager no longer count as activity by themselves; a real buy is recorded by the hook (`markActive`, hook-only, for the router-reported user or tx.origin), so it can't be faked for another wallet; `test_audit4_poolManagerPingDoesNotResetTimer`. |
 | 5 | Low: `releaseStuckReserve` fires on an idle, healthy stock | Function removed: a failed purchase now credits that round's IMD to holders at once (`_fallBackToImd`, gas-bounded). |
 | 6 | Low: stock is credited to holders at conversion time, not fee time | Accepted design limit, documented in the contract notice and README (conversions run at most a minute apart on every claim). |
 | 7 | Info: stock already bought is frozen if its token blocks this contract | No in-contract fix possible; documented in the contract notice. |
@@ -59,7 +59,7 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 2 | Low: a zero `stockRoundLimit` removed the limit and the swap crossed to a far resting position | Zero limit: the round is credited as IMD without any swap; `test_recheck2_zeroLiquidityRoundPaidAsImd_noSwap`. |
 | 3 | Low: `NotEnoughGas` made claims fail when a round became due after the gas estimate | Too little gas now skips the stock (no fallback, no revert); `test_lowGasClaim_succeeds_skipsStocks_neverTurnsThemIntoImd`. The website sends claims with a high gas limit so purchases run. |
 | 4 | Info: README described the removed 30-day release and an old test count | Updated. |
-| 5 | Info: AUDIT.md listed "a router buy resets the expiry timer" as accepted | Removed: a buy is not activity since fix 4 of 78c00339. |
+| 5 | Info: AUDIT.md listed "a router buy resets the expiry timer" as accepted | Removed. A buy is activity only for the buyer the hook records (see 78c00339 finding 4), never for a recipient chosen by someone else. |
 
 ## 6. Resolved: IMD Swarm final check 363ab052 (on commit d624407)
 

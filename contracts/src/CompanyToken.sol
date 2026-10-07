@@ -42,8 +42,8 @@ interface IPriceFeed {
 ///
 ///         Only wallets holding at least 100,000 $COMPANY earn (`MIN_HOLDING`); smaller balances earn nothing.
 ///         Rewards are claimed with `claim()`, which first converts waiting reserves into stocks (no keeper
-///         needed; `convert()` does the same for anyone), then pays all six assets. A wallet is active when it claims, sends tokens, pulls tokens
-///         itself, or receives tokens for the first time (buying alone does not count: claim at least weekly). Rewards
+///         needed; `convert()` does the same for anyone), then pays all six assets. A wallet is active when it claims, buys (a swap in the $COMPANY
+///         pool, recorded by the hook), sells or sends tokens, pulls tokens itself, or receives tokens for the first time. Rewards
 ///         of a wallet inactive for more than 7 days expire, except what it earned during those last 7 days, and go
 ///         to the protocol address (the hook's `feeRecipient`).
 ///
@@ -80,6 +80,7 @@ contract CompanyToken is IUnlockCallback {
     error NotPoolManager();
     error NotSelf();
     error PriceOff();
+    error NotHook();
     error BadFeed();
     error BadAsset();
     error BadAmount();
@@ -377,16 +378,29 @@ contract CompanyToken is IUnlockCallback {
         if (!fromSystem) _reweigh(from, fromWeightBefore, _weight(balanceOf[from]));
         if (!toSystem) _reweigh(to, toWeightBefore, _weight(balanceOf[to]));
 
-        // Activity (a zero-amount transferFrom needs no allowance, so it never counts). Sending is the holder's own
-        // act. Receiving counts only when the recipient initiated it or for a first receipt. Tokens arriving from the
-        // PoolManager don't count: anyone can move 1 wei out of it to any address for free (audit 78c00339,
-        // finding 4), so a buy is not activity; claiming or sending is.
+        // Activity (a zero-amount transferFrom needs no allowance, so it never counts). Sending (and selling, which
+        // sends to the pool) is the holder's own act. Receiving counts only when the recipient initiated it or for a
+        // first receipt. Tokens arriving from the PoolManager don't count by themselves, since anyone can move 1 wei
+        // out of it to any address for free (audit 78c00339, finding 4); a real buy is recorded by the hook through
+        // markActive instead.
         if (amount != 0) {
             if (!fromSystem) lastActive[from] = block.timestamp;
             if (!toSystem && (msg.sender == to || lastActive[to] == 0)) lastActive[to] = block.timestamp;
         }
 
         emit Transfer(from, to, amount);
+    }
+
+    /// @notice Records a real buy in the $COMPANY pool as the buyer's activity. Only the hook calls it, from its
+    ///         afterSwap, for the user CompanyRouter/CompanyEthRouter report (otherwise the transaction's signer),
+    ///         so nobody can mark a wallet active for free (moving tokens out of the PoolManager doesn't count, audit
+    ///         78c00339 finding 4). A wallet coming back after more than 7 days first forfeits what has expired, as
+    ///         a claim or a send does. Changes only the timer and the expired amount; never a balance.
+    function markActive(address buyer) external {
+        if (msg.sender != hook) revert NotHook();
+        if (isSystemAccount(buyer)) return;
+        if (_inactive(buyer)) _forfeit(buyer);
+        lastActive[buyer] = block.timestamp;
     }
 
     // ------------------------------------------------------------ Rewards

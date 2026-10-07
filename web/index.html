@@ -464,7 +464,7 @@ footer p { max-width: 95ch; }
           <div class="card prose">
             <span class="tiny">Before you buy</span>
             <p>Rewards start once your wallet holds <strong>100,000 $COMPANY</strong>. Smaller balances earn nothing.</p>
-            <p>Claim at least once a week: rewards you don't claim within 7 days of your last claim or send expire, except what you earned in those 7 days. Buying alone doesn't reset the timer.</p>
+            <p>If your wallet goes more than 7 days without claiming, buying, selling or sending, its unclaimed rewards older than 7 days expire.</p>
             <p>Stock rewards are Robinhood Stock Tokens. They aren't offered to US persons, and Robinhood can block addresses. A stock your wallet can't receive stays claimable.</p>
           </div>
         </div>
@@ -482,7 +482,7 @@ footer p { max-width: 95ch; }
       <div class="grid g3">
         <div class="card big-metric"><span class="tiny">Balance</span><span class="v num" id="pf-bal">—</span><p id="pf-share">—</p></div>
         <div class="card big-metric"><span class="tiny">Earning status</span><span class="v" id="pf-status">—</span><div class="meter" aria-hidden="true"><i id="pf-meter" style="width:0%"></i></div><p id="pf-status-s">Minimum 100,000 $COMPANY</p></div>
-        <div class="card big-metric"><span class="tiny">Rewards expire in</span><span class="v num" id="pf-expiry">—</span><p>7 days after your last activity. Claiming resets it.</p></div>
+        <div class="card big-metric"><span class="tiny">Rewards expire in</span><span class="v num" id="pf-expiry">—</span><p>7 days after you last claimed, bought, sold or sent. Any of those resets it.</p></div>
       </div>
       <div class="card" style="display:grid;gap:18px">
         <div class="side-head"><h3>Claimable rewards <span class="pill warn" id="pf-pill" style="vertical-align:middle;margin-left:6px">Example</span></h3><span class="caps num" id="pf-total">—</span></div>
@@ -528,7 +528,7 @@ footer p { max-width: 95ch; }
         <h2>Rules</h2>
         <div class="grid g3">
           <div class="card prose"><span class="tiny">Minimum holding</span><h3>100,000 $COMPANY</h3><p>Wallets below it earn nothing. You earn from the moment you reach it, never retroactively, and keep what you earned if you drop below.</p></div>
-          <div class="card prose"><span class="tiny">Expiry</span><h3>7 days</h3><p>You're active when you claim or send $COMPANY (or receive it for the first time). Buying alone doesn't count, so claim at least once a week. After 7 inactive days, rewards older than 7 days go to the protocol address.</p></div>
+          <div class="card prose"><span class="tiny">Expiry</span><h3>7 days</h3><p>If a wallet goes more than 7 days without claiming, buying, selling or sending, its unclaimed rewards older than 7 days expire to the protocol address.</p></div>
           <div class="card prose"><span class="tiny">Stock buying</span><h3>20 IMD per round</h3><p>Each claim buys stocks with at most 20 IMD (and never more than 0.25% of the IMD/USDG pool or what each stock's own pool can take), and each stock at most once a minute. Every purchase is also checked against Chainlink's price: if the pool's price is off by more than 3%, that stock waits for the next round.</p></div>
         </div>
       </section>
