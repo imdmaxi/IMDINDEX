@@ -1,6 +1,6 @@
 # IMDINDEX: The Zero Person Billion Dollar Company ($COMPANY)
 
-**Website: [imdindex-web.vercel.app](https://imdindex-web.vercel.app)**
+**Website: [zeropersoncompany.fun](https://www.zeropersoncompany.fun)**
 
 A fixed-supply token on Robinhood Chain (chain ID 4663), traded in a Uniswap v4 pool against **IMD** (`0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127`). Every trade pays a 4% fee. 3% goes to holders, and is paid not only in IMD but also in **AI and tech stock tokens**:
 
