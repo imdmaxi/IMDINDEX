@@ -238,20 +238,54 @@ main { display: grid; }
 
 /* ---------- swap */
 .overlap { margin-top: -40px; position: relative; z-index: 2; }
-.swap-wrap { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.swap-wrap { display: grid; grid-template-columns: minmax(0, 480px) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 900px) { .swap-wrap { grid-template-columns: minmax(0, 1fr); } }
+.swap-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px; box-shadow: var(--lift); }
+.swap-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; }
 .seg { display: inline-flex; padding: 4px; border-radius: 9px; background: var(--card-2); }
 .seg button { border: 0; background: transparent; padding: 8px 16px; border-radius: 7px; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
-.field { display: grid; gap: 8px; padding: 16px; border-radius: 8px; background: var(--card-2); }
-.field-row { display: flex; align-items: center; gap: 10px; }
-.field input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; outline: none; padding: 0; font-variant-numeric: tabular-nums; }
-.field select, .tokenbox { border: 0; padding: 9px 12px; border-radius: 8px; background: var(--card); box-shadow: var(--shadow); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap; }
-.field select { cursor: pointer; }
+.slip { display: flex; gap: 8px; align-items: center; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.slip select { border: 0; background: var(--card-2); border-radius: 7px; padding: 6px 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.field { display: grid; gap: 6px; padding: 14px 16px; border-radius: 10px; background: var(--card-2); min-width: 0; box-shadow: inset 0 0 0 1px transparent; transition: box-shadow .15s ease; }
+.field:focus-within { box-shadow: inset 0 0 0 1px var(--line); }
+.field-top, .field-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; }
+.field-foot { font-size: 13px; color: var(--muted); min-height: 20px; }
+.bal { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.max { border: 0; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); border-radius: 6px; padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+.max:hover { background: var(--line); }
+.field-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.field input { flex: 1 1 0; width: 0; min-width: 0; border: 0; background: transparent; font-size: clamp(24px, 7vw, 32px); font-weight: 500; letter-spacing: -0.02em; outline: none; padding: 0; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.field input.long { font-size: clamp(20px, 5.4vw, 26px); }
+.field input.longer { font-size: clamp(16px, 4.4vw, 21px); }
+.field input::placeholder { color: var(--muted); opacity: .6; }
+.asset-chip { position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--card); box-shadow: var(--shadow); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.asset-chip img { width: 26px; height: 26px; border-radius: 50%; display: block; flex: none; }
+.asset-chip .coin { width: 26px; height: 26px; border-radius: 50%; flex: none; }
+.asset-chip.pick { padding-right: 30px; cursor: pointer; }
+.asset-chip.pick::after { content: ""; position: absolute; right: 13px; top: 50%; width: 6px; height: 6px; margin-top: -5px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
+.asset-chip select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.coin { display: grid; place-items: center; color: var(--coin-ink, #fff); font-size: 12px; font-weight: 700; line-height: 1; background: var(--tile, #191918); }
+.coin.imd { --tile: var(--ink); --coin-ink: var(--card); font-size: 8px; letter-spacing: -0.02em; }
+.flip-row { position: relative; height: 0; }
+.flip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 10px; border: 4px solid var(--card); background: var(--card-2); color: var(--ink); display: grid; place-items: center; cursor: pointer; padding: 0; transition: transform .2s ease; }
+.flip:hover { transform: translate(-50%, -50%) rotate(180deg); }
+.flip svg { width: 16px; height: 16px; }
 .kv { display: grid; gap: 8px; font-size: 14px; margin: 0; }
-.kv > div { display: flex; justify-content: space-between; gap: 12px; }
-.kv dt { color: var(--muted); }
-.kv dd { margin: 0; text-align: right; }
+.kv > div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.kv dt { color: var(--muted); white-space: nowrap; }
+.kv dd { margin: 0; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.kv dd.good { color: var(--good); } .kv dd.warn { color: var(--warn); } .kv dd.bad { color: var(--bad); }
+.swap-details { padding: 4px 4px 2px; }
+.status a { color: inherit; font-weight: 600; }
+.pool-card { display: grid; gap: 14px; }
+.pool-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.pool-big { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pool-big b { font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
+.pool-big span { color: var(--muted); font-size: 14px; }
+.addr-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.copy { border: 0; background: var(--card-2); color: var(--ink); border-radius: 6px; padding: 4px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; flex: none; }
+.copy:hover { background: var(--line); }
 
 /* ---------- portfolio */
 .big-metric { display: grid; gap: 8px; }
@@ -423,37 +457,43 @@ footer p { max-width: 95ch; }
     </section>
     <div class="wrap overlap">
       <div class="swap-wrap">
-        <form class="card" id="swap-form" style="display:grid;gap:14px;box-shadow:var(--lift)" novalidate>
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <form class="card swap-card" id="swap-form" novalidate>
+          <div class="swap-head">
             <div class="seg" role="group" aria-label="Direction">
               <button type="button" id="dir-buy" aria-pressed="true">Buy</button>
               <button type="button" id="dir-sell" aria-pressed="false">Sell</button>
             </div>
-            <label class="tiny" style="display:flex;gap:8px;align-items:center">Slippage
-              <select id="slippage" aria-label="Slippage tolerance" style="border:0;background:var(--card-2);border-radius:7px;padding:6px 8px;font-weight:700">
+            <label class="slip">Max slippage
+              <select id="slippage" aria-label="Maximum slippage">
                 <option value="100">1%</option><option value="300" selected>3%</option><option value="500">5%</option><option value="1000">10%</option>
               </select>
             </label>
           </div>
           <div class="field">
-            <div style="display:flex;justify-content:space-between"><span class="tiny">You pay</span><span class="tiny" id="bal-in">Balance —</span></div>
+            <div class="field-top"><span class="tiny">You pay</span><span class="bal"><span id="bal-in"></span><button type="button" class="max" id="max-btn" hidden>Max</button></span></div>
             <div class="field-row">
-              <input id="amount-in" inputmode="decimal" autocomplete="off" placeholder="0.0" aria-label="Amount to pay" />
-              <select id="pay-asset" aria-label="Pay with"><option value="IMD">IMD</option><option value="ETH">ETH</option></select>
-              <span class="tokenbox" id="pay-company" hidden>$COMPANY</span>
+              <input id="amount-in" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" aria-label="Amount to pay" />
+              <label class="asset-chip pick" id="pay-pick"><span id="pay-icon"></span><span id="pay-sym">IMD</span><select id="pay-asset" aria-label="Pay with"><option value="IMD">IMD</option><option value="ETH">ETH</option></select></label>
+              <span class="asset-chip" id="pay-company" hidden><img src="/logo.svg" alt="" />$COMPANY</span>
             </div>
+            <div class="field-foot"><span id="usd-in"></span></div>
           </div>
+          <div class="flip-row"><button type="button" class="flip" id="flip-btn" aria-label="Switch between buying and selling"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button></div>
           <div class="field">
-            <div style="display:flex;justify-content:space-between"><span class="tiny">You receive (estimate)</span><span class="tiny" id="bal-out">Balance —</span></div>
+            <div class="field-top"><span class="tiny">You receive</span><span class="bal" id="bal-out"></span></div>
             <div class="field-row">
-              <input id="amount-out" readonly placeholder="0.0" aria-label="Estimated amount received" tabindex="-1" />
-              <span class="tokenbox" id="recv-company">$COMPANY</span>
-              <select id="recv-asset" aria-label="Receive" hidden><option value="IMD">IMD</option><option value="ETH">ETH</option></select>
+              <input id="amount-out" readonly placeholder="0" aria-label="Estimated amount received" tabindex="-1" />
+              <span class="asset-chip" id="recv-company"><img src="/logo.svg" alt="" />$COMPANY</span>
+              <label class="asset-chip pick" id="recv-pick" hidden><span id="recv-icon"></span><span id="recv-sym">IMD</span><select id="recv-asset" aria-label="Receive"><option value="IMD">IMD</option><option value="ETH">ETH</option></select></label>
             </div>
+            <div class="field-foot"><span id="usd-out"></span></div>
           </div>
-          <dl class="kv">
+          <dl class="kv swap-details">
+            <div><dt>Rate</dt><dd class="num" id="q-rate">—</dd></div>
+            <div><dt>Price impact</dt><dd class="num" id="q-impact">—</dd></div>
             <div><dt>Minimum received</dt><dd class="num" id="q-min">—</dd></div>
-            <div><dt>Fee</dt><dd>4% (3% to holders)</dd></div>
+            <div><dt>Fee</dt><dd class="num" id="q-fee">4% (3% to holders, 1% protocol)</dd></div>
+            <div id="q-rewards-row" hidden><dt>Rewards</dt><dd id="q-rewards"></dd></div>
             <div><dt>Route</dt><dd id="q-route">IMD → $COMPANY</dd></div>
           </dl>
           <button class="btn block" id="swap-btn" type="submit" disabled>Trading opens at launch</button>
@@ -461,11 +501,23 @@ footer p { max-width: 95ch; }
         </form>
         <div class="grid">
           <div class="notice" id="swap-note"><b style="color:var(--ink)">Pre-launch.</b> $COMPANY isn't deployed yet. Swaps turn on here the moment the pool opens.</div>
+          <div class="card pool-card" id="pool-card">
+            <div class="pool-head"><span class="tiny">$COMPANY price</span><span class="pill" id="pool-pill">Loading</span></div>
+            <div class="pool-big"><b class="num" id="p-price">—</b><span class="num" id="p-price-imd"></span></div>
+            <dl class="kv">
+              <div><dt>Market cap</dt><dd class="num" id="p-mcap">—</dd></div>
+              <div><dt>Liquidity</dt><dd>Locked forever in Uniswap v4</dd></div>
+              <div><dt>Token</dt><dd><span class="addr-row"><a class="addr" id="p-token" target="_blank" rel="noopener"></a><button type="button" class="copy" id="copy-token">Copy</button></span></dd></div>
+            </dl>
+            <button class="btn outline block" id="watch-btn" type="button">Add $COMPANY to wallet</button>
+            <p class="status" id="watch-status" role="status"></p>
+          </div>
           <div class="card prose">
             <span class="tiny">Before you buy</span>
             <p>Rewards start once your wallet holds <strong>100,000 $COMPANY</strong>. Smaller balances earn nothing.</p>
             <p>If your wallet goes more than 7 days without claiming, buying, selling or sending, its unclaimed rewards older than 7 days expire.</p>
             <p>Stock rewards are Robinhood Stock Tokens. They aren't offered to US persons, and Robinhood can block addresses. A stock your wallet can't receive stays claimable.</p>
+            <p>Selling needs no approval transaction: you sign a free permit and sell in one transaction.</p>
           </div>
         </div>
       </div>
@@ -588,6 +640,9 @@ const CONFIG = {
   usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
   stateView: "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
   poolManager: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+  quoter: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94", // Uniswap V4Quoter on Robinhood Chain
+  imdEthPool: { fee: 10000, tickSpacing: 100, hooks: "0x0000000000000000000000000000000000000000" }, // ETH route used by CompanyEthRouter
+  ethUsdFeed: "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9", // Chainlink ETH / USD
   // tokenIs0: whether the asset is currency0 in its USDG pool (USDG has 6 decimals, the rest 18)
   assets: [
     { sym: "IMD", name: "Identity.md", addr: "0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127", share: 50, tile: "#191918", pool: "0xaf5bcd88bb2b6084ca18319385b61fcbe17ec579032074861004f2668168406f", tokenIs0: true },
@@ -600,7 +655,7 @@ const CONFIG = {
 };
 const MIN_HOLDING = 100000;
 // Prices read from the same pools on 7 Oct 2026, shown until live reads succeed.
-const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 240.12, GOOGL: 347.71, AAPL: 334.52, GME: 24.75, MSTR: 161.37 } };
+const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 240.12, GOOGL: 347.71, AAPL: 334.52, GME: 24.75, MSTR: 161.37, ETH: 2570 } };
 // Example figures for the hero dashboard and the Portfolio page until real data exists (always labelled "Example").
 const EXAMPLE = {
   balance: 4835239, share: 0.48, lastActiveDaysAgo: 2,
@@ -621,11 +676,17 @@ const ABI = {
   token: [
     "function balanceOf(address) view returns (uint256)", "function eligibleSupply() view returns (uint256)", "function weightOf(address) view returns (uint256)",
     "function rewardsOf(address) view returns (uint256[6])", "function lastActive(address) view returns (uint256)", "function totalDistributed(uint256) view returns (uint256)",
-    "function claim() returns (uint256[6])",
+    "function claim() returns (uint256[6])", "function nonces(address) view returns (uint256)",
   ],
-  hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)"],
-  router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)", "function sell(address,uint256,uint256,uint256) returns (uint256)"],
-  ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)", "function sellForEth(address,uint256,uint256,uint256) returns (uint256)"],
+  hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))"],
+  router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)", "function sell(address,uint256,uint256,uint256) returns (uint256)", "function sellWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
+  ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)", "function sellForEth(address,uint256,uint256,uint256) returns (uint256)", "function sellForEthWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
+  // V4Quoter runs the real swap (hook fee included) and reverts with the result, so it is called with eth_call.
+  quoter: [
+    "function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut,uint256 gasEstimate)",
+    "function quoteExactInput((address exactCurrency,(address intermediateCurrency,uint24 fee,int24 tickSpacing,address hooks,bytes hookData)[] path,uint128 exactAmount) params) returns (uint256 amountOut,uint256 gasEstimate)",
+  ],
+  feed: ["function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)"],
 };
 
 // ---------------------------------------------------------------- helpers
@@ -748,6 +809,7 @@ async function loadPrices() {
     });
     state.live = true;
   } catch (e) { state.live = false; }
+  try { state.prices.ETH = Number((await new ethers.Contract(CONFIG.ethUsdFeed, ABI.feed, reader).latestRoundData())[1]) / 1e8; } catch (e) {}
   renderBasket();
 }
 async function loadMetrics() {
@@ -868,90 +930,300 @@ $("claim-btn").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------- swap
+// Quotes come from Uniswap's V4Quoter, which runs the real swap through the hook, so they need no wallet and already
+// include the 4% fee (and the IMD/ETH pool for ETH). Buys with IMD need an approval; sells use an EIP-2612 permit.
+const ETH_RESERVE = 300000000000000n; // 0.0003 ETH kept back for gas when using Max
+const PERMIT_TYPES = { Permit: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }, { name: "value", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] };
+const swap = { seq: 0, busy: false, quote: null, bal: { in: null, out: null }, key: null, poolId: null };
 function swapSide() { const buy = state.dir === "buy"; return { buy, quote: buy ? $("pay-asset").value : $("recv-asset").value }; }
+const symIn = () => { const { buy, quote } = swapSide(); return buy ? quote : "COMPANY"; };
+const symOut = () => { const { buy, quote } = swapSide(); return buy ? "COMPANY" : quote; };
+const label = (sym) => (sym === "COMPANY" ? "$COMPANY" : sym);
+const priceOf = (sym) => state.prices[sym] || 0;
+const coin = (sym) => sym === "ETH" ? `<span class="coin" style="--tile:#627eea" aria-hidden="true">Ξ</span>` : `<span class="coin imd" aria-hidden="true">IMD</span>`;
+const fmtRate = (v) => (!isFinite(v) ? "—" : v >= 100 ? fmtNum(v, 0) : v.toLocaleString("en-US", { maximumSignificantDigits: 4 }));
+const fmtSmallUsd = (v) => (v > 0 && v < 0.01 ? "<$0.01" : fmtUsd(v, 2));
+// Shrink long numbers so they fit the field on phones.
+function fitAmount(el) { const n = el.value.length; el.classList.toggle("long", n > 9 && n <= 13); el.classList.toggle("longer", n > 13); }
+const fmtSig = (v) => (v == null || !isFinite(v) ? "—" : "$" + v.toLocaleString("en-US", { maximumSignificantDigits: 4 }));
+function setButton(text, mode) { const b = $("swap-btn"); b.textContent = text; b.dataset.mode = mode || ""; b.disabled = !mode; }
+function setStatusLink(el, msg, href, kind) {
+  setStatus(el, msg + " ", kind);
+  const a = document.createElement("a"); a.href = href; a.target = "_blank"; a.rel = "noopener"; a.textContent = "View transaction ↗";
+  el.appendChild(a);
+}
+function clearQuote() {
+  swap.quote = null;
+  $("amount-out").value = ""; $("usd-out").textContent = ""; fitAmount($("amount-out"));
+  for (const id of ["q-rate", "q-impact", "q-min"]) { $(id).textContent = "—"; $(id).className = "num"; }
+  $("q-fee").textContent = "4% (3% to holders, 1% protocol)";
+  $("q-rewards-row").hidden = true;
+}
 function syncSwapUi() {
   const { buy, quote } = swapSide();
   $("dir-buy").setAttribute("aria-pressed", String(buy));
   $("dir-sell").setAttribute("aria-pressed", String(!buy));
-  $("pay-asset").hidden = !buy; $("pay-company").hidden = buy;
-  $("recv-asset").hidden = buy; $("recv-company").hidden = !buy;
+  $("pay-pick").hidden = !buy; $("pay-company").hidden = buy;
+  $("recv-pick").hidden = buy; $("recv-company").hidden = !buy;
+  $("pay-icon").innerHTML = coin(quote); $("recv-icon").innerHTML = coin(quote);
+  $("pay-sym").textContent = quote; $("recv-sym").textContent = quote;
   $("q-route").textContent = buy ? (quote === "ETH" ? "ETH → IMD → $COMPANY" : "IMD → $COMPANY") : (quote === "ETH" ? "$COMPANY → IMD → ETH" : "$COMPANY → IMD");
-  $("amount-out").value = ""; $("q-min").textContent = "—";
+  $("usd-in").textContent = "";
+  clearQuote();
 }
-$("dir-buy").addEventListener("click", () => { state.dir = "buy"; syncSwapUi(); refreshSwap(); });
-$("dir-sell").addEventListener("click", () => { state.dir = "sell"; syncSwapUi(); refreshSwap(); });
-["pay-asset", "recv-asset", "slippage"].forEach((id) => $(id).addEventListener("change", () => { syncSwapUi(); refreshSwap(); }));
+function setDir(dir) { if (state.dir === dir) return; state.dir = dir; setStatus($("swap-status"), ""); syncSwapUi(); refreshSwap(); }
+$("dir-buy").addEventListener("click", () => setDir("buy"));
+$("dir-sell").addEventListener("click", () => setDir("sell"));
+$("flip-btn").addEventListener("click", () => {
+  const prev = swap.quote;
+  if (prev) { const [i, f = ""] = ethers.formatUnits(prev.out, 18).split("."); const ff = f.slice(0, 6).replace(/0+$/, ""); $("amount-in").value = ff ? i + "." + ff : i; fitAmount($("amount-in")); }
+  setDir(state.dir === "buy" ? "sell" : "buy");
+});
+// One quote asset for both directions: picking IMD or ETH on either side sets both.
+["pay-asset", "recv-asset"].forEach((id) => $(id).addEventListener("change", (e) => {
+  $("pay-asset").value = $("recv-asset").value = e.target.value;
+  setStatus($("swap-status"), ""); syncSwapUi(); refreshSwap();
+}));
+$("slippage").addEventListener("change", () => refreshSwap());
 let quoteTimer = null;
-$("amount-in").addEventListener("input", () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(refreshSwap, 350); });
+$("amount-in").addEventListener("input", (e) => {
+  const el = e.target;
+  let v = el.value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+  const dot = v.indexOf(".");
+  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "").slice(0, 18);
+  if (v !== el.value) el.value = v;
+  fitAmount(el);
+  setStatus($("swap-status"), "");
+  clearTimeout(quoteTimer); quoteTimer = setTimeout(refreshSwap, 300);
+});
 function parseIn() {
-  const v = $("amount-in").value.trim();
-  if (!v || !/^\d*\.?\d*$/.test(v) || Number(v) <= 0) return null;
-  try { return ethers.parseUnits(v, 18); } catch (e) { return null; }
+  const v = $("amount-in").value.trim().replace(/\.$/, "");
+  if (!v || !hasEthers) return null;
+  try { const x = ethers.parseUnits(v, 18); return x > 0n ? x : null; } catch (e) { return null; }
 }
-// What the swap needs: the token to approve (if any), the contract call and its ETH value.
-function plan(amount) {
-  const { buy, quote } = swapSide();
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
-  if (buy && quote === "IMD") return { approveToken: CONFIG.assets[0].addr, spender: CONFIG.router, c: new ethers.Contract(CONFIG.router, ABI.router, state.signer), fn: "buy", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
-  if (buy) return { c: new ethers.Contract(CONFIG.ethRouter, ABI.ethRouter, state.signer), fn: "buyWithEth", args: (m) => [CONFIG.token, m, deadline], value: amount };
-  if (quote === "IMD") return { approveToken: CONFIG.token, spender: CONFIG.router, c: new ethers.Contract(CONFIG.router, ABI.router, state.signer), fn: "sell", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
-  return { approveToken: CONFIG.token, spender: CONFIG.ethRouter, c: new ethers.Contract(CONFIG.ethRouter, ABI.ethRouter, state.signer), fn: "sellForEth", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
+$("max-btn").addEventListener("click", () => {
+  let b = swap.bal.in; if (b == null) return;
+  if (symIn() === "ETH") b = b > ETH_RESERVE ? b - ETH_RESERVE : 0n;
+  $("amount-in").value = ethers.formatUnits(b, 18).replace(/\.0$/, ""); fitAmount($("amount-in"));
+  setStatus($("swap-status"), ""); refreshSwap();
+});
+
+async function companyKey() {
+  if (!swap.key) {
+    const k = await new ethers.Contract(CONFIG.hook, ABI.hook, reader).poolKey(CONFIG.token);
+    swap.key = { currency0: k[0], currency1: k[1], fee: Number(k[2]), tickSpacing: Number(k[3]), hooks: k[4] };
+  }
+  return swap.key;
+}
+async function quoteExact(amount, buy, quote, at = {}) {
+  const q = new ethers.Contract(CONFIG.quoter, ABI.quoter, reader);
+  const key = await companyKey(), imd = CONFIG.assets[0].addr;
+  if (quote === "IMD") {
+    const companyIs0 = key.currency0.toLowerCase() === CONFIG.token.toLowerCase();
+    return (await q.quoteExactInputSingle.staticCall({ poolKey: key, zeroForOne: buy ? !companyIs0 : companyIs0, exactAmount: amount, hookData: "0x" }, at))[0];
+  }
+  const ethHop = { fee: CONFIG.imdEthPool.fee, tickSpacing: CONFIG.imdEthPool.tickSpacing, hooks: CONFIG.imdEthPool.hooks, hookData: "0x" };
+  const companyHop = { fee: key.fee, tickSpacing: key.tickSpacing, hooks: key.hooks, hookData: "0x" };
+  const path = buy
+    ? [{ intermediateCurrency: imd, ...ethHop }, { intermediateCurrency: CONFIG.token, ...companyHop }]
+    : [{ intermediateCurrency: imd, ...companyHop }, { intermediateCurrency: ethers.ZeroAddress, ...ethHop }];
+  return (await q.quoteExactInput.staticCall({ exactCurrency: buy ? ethers.ZeroAddress : CONFIG.token, path, exactAmount: amount }, at))[0];
+}
+async function balanceOf(sym) {
+  if (sym === "ETH") return reader.getBalance(state.account);
+  return new ethers.Contract(sym === "IMD" ? CONFIG.assets[0].addr : CONFIG.token, ABI.erc20, reader).balanceOf(state.account);
 }
 async function refreshBalances() {
-  if (!state.account || !launched()) return;
-  const { buy, quote } = swapSide();
-  const bal = async (sym) => sym === "ETH" ? state.signer.provider.getBalance(state.account) : new ethers.Contract(sym === "IMD" ? CONFIG.assets[0].addr : CONFIG.token, ABI.erc20, reader).balanceOf(state.account);
-  const [bin, bout] = await Promise.all([bal(buy ? quote : "COMPANY"), bal(buy ? "COMPANY" : quote)]);
+  if (!state.account || !launched() || !reader) {
+    swap.bal = { in: null, out: null }; $("bal-in").textContent = ""; $("bal-out").textContent = ""; $("max-btn").hidden = true; return;
+  }
+  const a = symIn(), b = symOut();
+  const [bin, bout] = await Promise.all([balanceOf(a), balanceOf(b)]);
+  if (a !== symIn()) return; // direction changed meanwhile
+  swap.bal = { in: bin, out: bout };
   $("bal-in").textContent = "Balance " + fmtTok(units(bin));
   $("bal-out").textContent = "Balance " + fmtTok(units(bout));
+  $("max-btn").hidden = bin === 0n;
+}
+function renderRewards(buy, inN, outN) {
+  const row = $("q-rewards-row"), dd = $("q-rewards");
+  const held = state.account ? (buy ? swap.bal.out : swap.bal.in) : null;
+  if (!buy && held == null) { row.hidden = true; return; }
+  const before = held != null ? units(held) : 0;
+  const after = buy ? before + outN : Math.max(0, before - inN);
+  row.hidden = false;
+  if (after >= MIN_HOLDING) { dd.textContent = before < MIN_HOLDING ? "Starts earning" : "Keeps earning"; dd.className = "good"; }
+  else if (before >= MIN_HOLDING) { dd.textContent = "Stops earning (under 100,000)"; dd.className = "warn"; }
+  else { dd.textContent = fmtNum(MIN_HOLDING - after, 0) + " more needed to earn"; dd.className = "warn"; }
 }
 async function refreshSwap() {
-  const btn = $("swap-btn"), st = $("swap-status");
-  if (!launched()) { btn.disabled = true; btn.textContent = "Trading opens at launch"; $("swap-note").hidden = false; return; }
+  if (!launched()) { setButton("Trading opens at launch", null); $("swap-note").hidden = false; return; }
   $("swap-note").hidden = true;
-  if (!state.account) { btn.disabled = false; btn.textContent = "Connect wallet"; return; }
-  setStatus(st, "");
-  try { await refreshBalances(); } catch (e) {}
+  if (swap.busy || !reader) return;
+  const seq = ++swap.seq;
+  const st = $("swap-status");
+  const { buy, quote } = swapSide();
+  const balances = refreshBalances().catch(() => {});
   const amount = parseIn();
-  if (!amount) { btn.disabled = true; btn.textContent = "Enter an amount"; $("amount-out").value = ""; $("q-min").textContent = "—"; return; }
-  const p = plan(amount);
-  if (p.approveToken) {
-    const allowance = await new ethers.Contract(p.approveToken, ABI.erc20, reader).allowance(state.account, p.spender);
-    if (allowance < amount) { btn.disabled = false; btn.dataset.mode = "approve"; btn.textContent = "Approve " + (p.approveToken === CONFIG.token ? "$COMPANY" : "IMD"); $("amount-out").value = ""; $("q-min").textContent = "Quote after approval"; return; }
+  if (!amount) {
+    clearQuote(); $("usd-in").textContent = "";
+    await balances; if (seq !== swap.seq) return;
+    if (state.account) setButton("Enter an amount", null); else setButton("Connect wallet", "connect");
+    return;
   }
+  const inN = units(amount);
+  if (!swap.quote) setButton("Getting a quote…", null);
+  let out, ref;
   try {
-    const out = await p.c[p.fn].staticCall(...p.args(0n), { value: p.value });
-    state.minOut = (out * (10000n - BigInt($("slippage").value))) / 10000n;
-    $("amount-out").value = fmtTok(units(out));
-    $("q-min").textContent = fmtTok(units(state.minOut));
-    btn.disabled = false; btn.dataset.mode = "swap";
-    btn.textContent = state.dir === "buy" ? "Buy $COMPANY" : "Sell $COMPANY";
-  } catch (e) { btn.disabled = true; btn.textContent = "No quote"; setStatus(st, "Couldn't get a quote: " + errMsg(e), "err"); }
+    // The public RPC spreads calls over nodes a few blocks apart (blocks are ~0.1 s), so every read of one quote is
+    // pinned to the same recent block. A quote 1/1000 the size gives the pre-trade rate: price impact without the fees.
+    const at = { blockTag: Math.max(0, (await reader.getBlockNumber()) - 20) };
+    const small = amount / 1000n;
+    [out, ref] = await Promise.all([
+      quoteExact(amount, buy, quote, at),
+      small > 0n ? quoteExact(small, buy, quote, at).catch(() => null) : null,
+      readSpot(at).catch(() => null),
+    ]);
+  } catch (e) {
+    if (seq !== swap.seq) return;
+    clearQuote(); setButton("No quote", null);
+    setStatus(st, "Couldn't get a quote: " + errMsg(e), "err"); st.dataset.src = "quote";
+    return;
+  }
+  await balances;
+  if (seq !== swap.seq) return;
+  if (st.dataset.src === "quote") { setStatus(st, ""); st.dataset.src = ""; }
+  const outN = units(out), slip = BigInt($("slippage").value);
+  swap.quote = { amount, out, minOut: (out * (10000n - slip)) / 10000n };
+  $("amount-out").value = fmtTok(outN); fitAmount($("amount-out"));
+  $("usd-in").textContent = priceOf(symIn()) ? "≈ " + fmtSmallUsd(inN * priceOf(symIn())) : "";
+  $("usd-out").textContent = priceOf(symOut()) ? "≈ " + fmtSmallUsd(outN * priceOf(symOut())) : "";
+  $("q-rate").textContent = `1 ${quote} = ${fmtRate(buy ? outN / inN : inN / outN)} $COMPANY`;
+  if (ref) {
+    const imp = Math.max(0, 1 - (outN / inN) / (units(ref) / units(amount / 1000n))) * 100;
+    $("q-impact").textContent = imp < 0.01 ? "<0.01%" : fmtNum(imp, 2) + "%";
+    $("q-impact").className = "num" + (imp >= 15 ? " bad" : imp >= 5 ? " warn" : "");
+    if (imp >= 15) { setStatus(st, "High price impact: this trade moves the price " + fmtNum(imp, 1) + "%. Try a smaller amount.", "err"); st.dataset.src = "quote"; }
+  } else $("q-impact").textContent = "—";
+  $("q-min").textContent = fmtTok(units(swap.quote.minOut)) + " " + label(symOut());
+  const feeUsd = (buy ? inN * priceOf(symIn()) : (outN / 0.96) * priceOf(symOut())) * 0.04;
+  $("q-fee").textContent = feeUsd > 0 ? "4% · ≈ " + fmtSmallUsd(feeUsd) + " (3% to holders)" : "4% (3% to holders, 1% protocol)";
+  renderRewards(buy, inN, outN);
+  if (!state.account) { setButton("Connect wallet", "connect"); return; }
+  if (swap.bal.in != null && amount > swap.bal.in) { setButton("Not enough " + label(symIn()), null); return; }
+  if (buy && quote === "IMD") {
+    const allowance = await new ethers.Contract(CONFIG.assets[0].addr, ABI.erc20, reader).allowance(state.account, CONFIG.router);
+    if (seq !== swap.seq) return;
+    if (allowance < amount) { setButton("Approve IMD", "approve"); return; }
+  }
+  setButton(buy ? "Buy $COMPANY" : "Sell $COMPANY", "swap");
+}
+// Sells: sign an EIP-2612 permit for exactly this amount (no gas), then sell in one transaction.
+async function sendSell(amount, minOut, deadline, quote, st) {
+  const viaEth = quote === "ETH", spender = viaEth ? CONFIG.ethRouter : CONFIG.router;
+  const c = new ethers.Contract(spender, viaEth ? ABI.ethRouter : ABI.router, state.signer);
+  const plain = () => (viaEth ? c.sellForEth(CONFIG.token, amount, minOut, deadline) : c.sell(CONFIG.token, amount, minOut, deadline));
+  const allowance = await new ethers.Contract(CONFIG.token, ABI.erc20, reader).allowance(state.account, spender);
+  if (allowance >= amount) { setStatus(st, "Confirm the sell in your wallet…"); return plain(); }
+  const nonce = await new ethers.Contract(CONFIG.token, ABI.token, reader).nonces(state.account);
+  let sig;
+  try {
+    setStatus(st, "Sign the permit in your wallet (free, no gas)…");
+    sig = ethers.Signature.from(await state.signer.signTypedData(
+      { name: "The Zero Person Billion Dollar Company", version: "1", chainId: CONFIG.chainId, verifyingContract: CONFIG.token },
+      PERMIT_TYPES, { owner: state.account, spender, value: amount, nonce, deadline }));
+  } catch (e) {
+    if (e && (e.code === 4001 || e.code === "ACTION_REJECTED" || /reject|denied/i.test(e.message || ""))) throw e;
+    // Wallets that can't sign typed data: approve, then sell.
+    setStatus(st, "Approve $COMPANY in your wallet…");
+    await (await new ethers.Contract(CONFIG.token, ABI.erc20, state.signer).approve(spender, amount)).wait();
+    setStatus(st, "Confirm the sell in your wallet…");
+    return plain();
+  }
+  setStatus(st, "Confirm the sell in your wallet…");
+  return viaEth
+    ? c.sellForEthWithPermit(CONFIG.token, amount, minOut, deadline, sig.v, sig.r, sig.s)
+    : c.sellWithPermit(CONFIG.token, amount, minOut, deadline, sig.v, sig.r, sig.s);
 }
 $("swap-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const btn = $("swap-btn"), st = $("swap-status");
-  if (!launched()) return;
-  if (!state.signer) return connect();
+  const btn = $("swap-btn"), st = $("swap-status"), mode = btn.dataset.mode;
+  if (!mode || swap.busy || !launched()) return;
+  if (mode === "connect" || !state.signer) { await connect(); return; }
   const amount = parseIn(); if (!amount) return;
-  const p = plan(amount);
+  const { buy, quote } = swapSide();
+  swap.busy = true; btn.disabled = true; st.dataset.src = "";
   try {
-    btn.disabled = true;
-    if (btn.dataset.mode === "approve") {
-      setStatus(st, "Confirm the approval in your wallet…");
-      await (await new ethers.Contract(p.approveToken, ABI.erc20, state.signer).approve(p.spender, amount)).wait();
-      setStatus(st, "Approved.", "ok");
-    } else {
-      setStatus(st, "Confirm the swap in your wallet…");
-      const tx = await p.c[p.fn](...p.args(state.minOut), { value: p.value });
-      setStatus(st, "Swapping… " + short(tx.hash));
+    if (mode === "approve") {
+      setStatus(st, "Step 1 of 2: approve IMD in your wallet…");
+      const tx = await new ethers.Contract(CONFIG.assets[0].addr, ABI.erc20, state.signer).approve(CONFIG.router, amount);
+      setStatus(st, "Approving…");
       await tx.wait();
-      setStatus(st, "Done. " + (state.dir === "buy" ? "$COMPANY is in your wallet." : "Your proceeds are in your wallet."), "ok");
+      setStatus(st, "Approved. Step 2 of 2: press Buy $COMPANY.", "ok");
+    } else {
+      // Re-quote right before sending so the minimum isn't stale.
+      const out = await quoteExact(amount, buy, quote);
+      const minOut = (out * (10000n - BigInt($("slippage").value))) / 10000n;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+      let tx;
+      if (buy) {
+        setStatus(st, "Confirm the buy in your wallet…");
+        tx = quote === "IMD"
+          ? await new ethers.Contract(CONFIG.router, ABI.router, state.signer).buy(CONFIG.token, amount, minOut, deadline)
+          : await new ethers.Contract(CONFIG.ethRouter, ABI.ethRouter, state.signer).buyWithEth(CONFIG.token, minOut, deadline, { value: amount });
+      } else tx = await sendSell(amount, minOut, deadline, quote, st);
+      setStatus(st, (buy ? "Buying" : "Selling") + "… waiting for confirmation.");
+      const rc = await tx.wait();
+      if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
       $("amount-in").value = "";
+      setStatusLink(st, buy ? "Done. $COMPANY is in your wallet." : "Done. Your " + quote + " is in your wallet.", CONFIG.explorer + "/tx/" + tx.hash, "ok");
+      loadPortfolio(); loadPool();
     }
   } catch (err) { setStatus(st, errMsg(err), "err"); }
+  swap.busy = false;
   await refreshSwap();
 });
+
+// ---------------------------------------------------------------- pool card
+async function loadPool() {
+  if (!launched()) return;
+  $("p-token").href = CONFIG.explorer + "/token/" + CONFIG.token; $("p-token").textContent = short(CONFIG.token) + " ↗";
+  if (!reader) return;
+  try { await readSpot(); } catch (e) { $("pool-pill").textContent = "Offline"; $("pool-pill").className = "pill warn"; }
+}
+// Pool price (IMD per $COMPANY) from slot0; updates the $COMPANY dollar price and the pool card.
+async function readSpot(at = {}) {
+  const key = await companyKey();
+  if (!swap.poolId) swap.poolId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(["address", "address", "uint24", "int24", "address"], [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks]));
+  const [sqrtP] = await new ethers.Contract(CONFIG.stateView, ABI.stateView, reader).getSlot0(swap.poolId, at);
+  const s = Number(sqrtP) / 2 ** 96, raw = s * s; // currency1 per currency0, both 18 decimals
+  const imdPer = key.currency0.toLowerCase() === CONFIG.token.toLowerCase() ? raw : 1 / raw;
+  state.prices.COMPANY = imdPer * priceOf("IMD");
+  $("p-price").textContent = fmtSig(state.prices.COMPANY);
+  $("p-price-imd").textContent = imdPer.toLocaleString("en-US", { maximumSignificantDigits: 4 }) + " IMD";
+  $("p-mcap").textContent = fmtUsd(imdPer * 1e9 * priceOf("IMD"), 0) + " · " + fmtNum(imdPer * 1e9, 0) + " IMD";
+  $("pool-pill").textContent = "Live"; $("pool-pill").className = "pill live";
+}
+$("copy-token").addEventListener("click", async () => {
+  const b = $("copy-token");
+  try { await navigator.clipboard.writeText(CONFIG.token); b.textContent = "Copied"; } catch (e) { b.textContent = "Failed"; }
+  setTimeout(() => { b.textContent = "Copy"; }, 1500);
+});
+$("watch-btn").addEventListener("click", async () => {
+  const st = $("watch-status");
+  if (!window.ethereum) { setStatus(st, "No wallet found in this browser.", "err"); return; }
+  try {
+    await ensureChain();
+    const ok = await window.ethereum.request({ method: "wallet_watchAsset", params: { type: "ERC20", options: { address: CONFIG.token, symbol: "COMPANY", decimals: 18, image: location.origin + "/icon-512.png" } } });
+    setStatus(st, ok ? "$COMPANY is in your wallet's token list." : "Not added.", ok ? "ok" : "");
+  } catch (e) { setStatus(st, errMsg(e), "err"); }
+});
+// Keep the quote and price fresh while the Swap page is open.
+setInterval(() => {
+  if (document.hidden || !$("view-swap").classList.contains("on")) return;
+  loadPool();
+  if (parseIn() && !swap.busy) refreshSwap();
+}, 20000);
 
 // ---------------------------------------------------------------- boot
 syncThemeButton();
@@ -962,7 +1234,7 @@ renderContracts();
 syncSwapUi();
 showExample();
 refreshSwap();
-loadPrices().then(loadMetrics);
+loadPrices().then(() => Promise.all([loadMetrics(), loadPool()])).then(() => { if (parseIn()) refreshSwap(); });
 </script>
 </body>
 </html>
