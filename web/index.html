@@ -316,6 +316,11 @@ main { display: grid; }
 .lookup-row input::placeholder { font-family: var(--font); color: var(--muted); }
 .lookup .status:empty { display: none; }
 @media (max-width: 600px) { .lookup-row { flex-direction: column; } .lookup-row input { flex: none; width: 100%; } .lookup-row .btn { justify-content: center; } }
+.adt td small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.adt td a { text-decoration: none; font-weight: 600; }
+.adt td a:hover { text-decoration: underline; }
+.t-good { color: var(--good); } .t-warn { color: var(--warn); } .t-bad { color: var(--bad); }
+.ad-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .linkish { border: 0; background: none; padding: 0; color: var(--ink); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .add-inline { display: none; border: 0; background: none; padding: 0; margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 @media (max-width: 600px) {
@@ -372,6 +377,7 @@ footer p { max-width: 95ch; }
       <a href="#swap" data-route="swap">Swap</a>
       <a href="#portfolio" data-route="portfolio">Portfolio</a>
       <a href="#docs" data-route="docs">Docs</a>
+      <a href="#admin" data-route="admin" id="nav-admin" hidden>Admin</a>
     </nav>
     <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch to night mode" title="Day / night">
       <svg id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -608,6 +614,47 @@ footer p { max-width: 95ch; }
     </div>
   </div>
 
+  <!-- ============================================================ ADMIN (project wallet only) -->
+  <div class="view" id="view-admin">
+    <section class="sky page-sky">
+      <div class="wrap rise"><span class="eyebrow">/ Admin /</span><h1>Unclaimed rewards.</h1><p>Every wallet that has held $COMPANY: what it can still claim, and what has expired.</p></div>
+    </section>
+    <div class="wrap overlap" style="display:grid;gap:14px">
+      <div class="notice" id="ad-gate" style="box-shadow:var(--lift)"></div>
+      <div id="ad-body" style="display:grid;gap:14px" hidden>
+        <div class="grid g3">
+          <div class="card big-metric"><span class="tiny">Unclaimed, all wallets</span><span class="v num" id="ad-unclaimed">—</span><p id="ad-unclaimed-s">Credited to holders, not claimed yet.</p></div>
+          <div class="card big-metric"><span class="tiny">Expired, ready to recycle</span><span class="v num" id="ad-expired">—</span><p id="ad-expired-s">Goes to the fee wallet when recycled.</p></div>
+          <div class="card big-metric"><span class="tiny">Not credited yet</span><span class="v num" id="ad-waiting">—</span><p>Fees still in the hook, and IMD waiting to buy stocks.</p></div>
+        </div>
+        <div class="card" style="display:grid;gap:16px">
+          <div class="side-head">
+            <h3>Wallets <span class="pill" id="ad-count" style="vertical-align:middle;margin-left:6px">—</span></h3>
+            <div class="ad-tools">
+              <div class="seg" role="group" aria-label="Filter wallets">
+                <button type="button" data-filter="rewards" aria-pressed="true">With rewards</button>
+                <button type="button" data-filter="expired" aria-pressed="false">Expired</button>
+                <button type="button" data-filter="sold" aria-pressed="false">Not earning</button>
+                <button type="button" data-filter="all" aria-pressed="false">All</button>
+              </div>
+              <button type="button" class="copy" id="ad-csv">CSV</button>
+              <button type="button" class="copy" id="ad-reload">Refresh</button>
+            </div>
+          </div>
+          <p class="status" id="ad-status" role="status"></p>
+          <div class="table-scroll">
+            <table class="rtable adt"><thead><tr><th>Wallet</th><th>Balance</th><th>Unclaimed</th><th>Last active</th><th>Status</th></tr></thead><tbody id="ad-rows"></tbody></table>
+          </div>
+          <p style="color:var(--muted);font-size:13px">A wallet's unclaimed rewards expire once it has gone more than 7 days without claiming, buying, selling or sending. Recycling sends expired rewards to the fee wallet. Anyone can trigger it on-chain; this button batches it for every expired wallet.</p>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+            <button class="btn" id="ad-recycle" type="button" disabled>Recycle expired rewards</button>
+            <p class="status" id="ad-recycle-status" role="status"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============================================================ DOCS -->
   <div class="view" id="view-docs">
     <section class="sky page-sky">
@@ -702,6 +749,8 @@ const CONFIG = {
   imdEthPool: { fee: 10000, tickSpacing: 100, hooks: "0x0000000000000000000000000000000000000000" }, // ETH route used by CompanyEthRouter
   ethUsdFeed: "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9", // Chainlink ETH / USD
   multicall: "0xcA11bde05977b3631167028862bE2a173976CA11", // Multicall3: one request, one block for every read
+  admin: "0x8F5A29c82e8285Db3B2af8D0caF5404b0f9ce834", // project wallet (hook owner and fee wallet): sees the Admin page
+  launchBlock: 82640804, // first block with $COMPANY transfers
   // tokenIs0: whether the asset is currency0 in its USDG pool (USDG has 6 decimals, the rest 18)
   assets: [
     { sym: "IMD", name: "Identity.md", addr: "0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127", share: 50, tile: "#191918", pool: "0xaf5bcd88bb2b6084ca18319385b61fcbe17ec579032074861004f2668168406f", tokenIs0: true },
@@ -737,6 +786,7 @@ const ABI = {
     "function balanceOf(address) view returns (uint256)", "function eligibleSupply() view returns (uint256)", "function weightOf(address) view returns (uint256)",
     "function rewardsOf(address) view returns (uint256[6])", "function lastActive(address) view returns (uint256)", "function totalDistributed(uint256) view returns (uint256)",
     "function claim() returns (uint256[6])", "function nonces(address) view returns (uint256)", "function pendingConvert(uint256) view returns (uint256)",
+    "function isSystemAccount(address) view returns (bool)", "function expiredRewardsOf(address,uint256) view returns (uint256)", "function owed(uint256) view returns (uint256)", "function recycleMany(address[])",
   ],
   hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))",
     "function pendingHolderFees(address) view returns (uint256)", "function feeRecipient() view returns (address)", "function collectProtocolFees(address)"],
@@ -815,7 +865,7 @@ window.addEventListener("scroll", onScroll, { passive: true });
 $("nav").addEventListener("click", (e) => { if (navbar.classList.contains("compact")) { e.preventDefault(); navbar.classList.remove("compact"); } }, true);
 
 // ---------------------------------------------------------------- routing
-const ROUTES = ["home", "swap", "portfolio", "docs"];
+const ROUTES = ["home", "swap", "portfolio", "docs", "admin"];
 function route() {
   const [path, query] = location.hash.slice(1).split("?");
   const r = ROUTES.includes(path) ? path : "home";
@@ -829,7 +879,7 @@ function route() {
   window.scrollTo({ top: 0 });
   onScroll();
 }
-window.addEventListener("hashchange", () => { route(); refreshView(); });
+window.addEventListener("hashchange", () => { route(); refreshView(); if ($("view-admin").classList.contains("on")) loadAdmin(); });
 function refreshView() {
   if (!launched() || document.hidden) return;
   const on = (v) => $("view-" + v).classList.contains("on");
@@ -971,7 +1021,7 @@ async function connect() {
     state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
     state.account = await state.signer.getAddress();
     btn.textContent = short(state.account);
-    syncLookup();
+    syncLookup(); syncAdminNav();
     await Promise.all([loadPortfolio(), refreshSwap()]);
   } catch (e) { btn.textContent = state.account ? short(state.account) : "Connect"; }
 }
@@ -986,13 +1036,13 @@ async function restoreWallet() {
     const chain = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
     if (chain === CONFIG.chainId) state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner(state.account);
     $("connect").textContent = state.signer ? short(state.account) : "Switch network";
-    syncLookup();
+    syncLookup(); syncAdminNav();
     await Promise.all([loadPortfolio(), refreshSwap()]);
   } catch (e) {}
 }
 $("connect").addEventListener("click", connect);
 if (window.ethereum && window.ethereum.on) {
-  window.ethereum.on("accountsChanged", () => { state.account = null; state.signer = null; state.holdings = null; $("connect").textContent = "Connect"; connect(); });
+  window.ethereum.on("accountsChanged", () => { state.account = null; state.signer = null; state.holdings = null; syncAdminNav(); $("connect").textContent = "Connect"; connect(); });
   window.ethereum.on("chainChanged", () => location.reload());
 }
 
@@ -1165,6 +1215,162 @@ $("claim-btn").addEventListener("click", async () => {
     await loadPortfolio();
   } catch (e) { setStatus(st, errMsg(e), "err"); }
   finally { $("claim-btn").disabled = !launched() || !isOwnView(); }
+});
+
+// ---------------------------------------------------------------- admin (project wallet only)
+// Shown only when the project wallet is connected. Everything here is public on-chain data and recycling is open to
+// anyone, so the gate keeps the page out of holders' way rather than protecting anything.
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const admin = { rows: [], totals: null, filter: "rewards", loading: false, loadedAt: 0 };
+const isAdmin = () => Boolean(state.account && state.account.toLowerCase() === CONFIG.admin.toLowerCase());
+function syncAdminNav() {
+  $("nav-admin").hidden = !isAdmin();
+  if ($("view-admin").classList.contains("on")) loadAdmin();
+}
+// Every address that ever received $COMPANY, from the explorer's log index (cached per browser, then extended).
+async function everHolders() {
+  const KEY = "company-admin-holders-" + CONFIG.token.toLowerCase();
+  let cache = { from: CONFIG.launchBlock, addrs: [] };
+  try { const c = JSON.parse(localStorage.getItem(KEY) || "null"); if (c && c.from && Array.isArray(c.addrs)) cache = c; } catch (e) {}
+  const set = new Set(cache.addrs);
+  let from = cache.from, last = cache.from;
+  for (let page = 0; page < 1000; page++) {
+    const url = `${CONFIG.explorer}/api?module=logs&action=getLogs&fromBlock=${from}&toBlock=latest&address=${CONFIG.token}&topic0=${TRANSFER_TOPIC}`;
+    const j = await retry(() => fetch(url).then((r) => { if (!r.ok) throw new Error("The explorer answered " + r.status); return r.json(); }));
+    const logs = Array.isArray(j.result) ? j.result : [];
+    for (const l of logs) { set.add(ethers.getAddress("0x" + l.topics[2].slice(26))); last = Math.max(last, parseInt(l.blockNumber, 16)); }
+    if (logs.length < 1000) break;
+    from = last > from ? last : from + 1; // pages overlap by one block; a block with 1,000+ transfers can't stall the scan
+  }
+  try { localStorage.setItem(KEY, JSON.stringify({ from: last, addrs: [...set] })); } catch (e) {}
+  return [...set].filter((a) => a !== ethers.ZeroAddress);
+}
+// Many multicalls, a few at a time.
+async function multiChunks(calls, size = 120) {
+  const out = new Array(calls.length), chunks = [];
+  for (let i = 0; i < calls.length; i += size) chunks.push(i);
+  for (let k = 0; k < chunks.length; k += 3) {
+    await Promise.all(chunks.slice(k, k + 3).map(async (i) => {
+      const r = await retry(() => multiRead(calls.slice(i, i + size)));
+      r.forEach((v, j) => { out[i + j] = v; });
+    }));
+  }
+  return out;
+}
+async function loadAdmin(force) {
+  const gate = $("ad-gate"), body = $("ad-body");
+  if (!isAdmin()) {
+    body.hidden = true; gate.hidden = false; admin.rows = []; admin.totals = null;
+    gate.innerHTML = state.account
+      ? "<b style='color:var(--ink)'>Project wallet only.</b> This page is for the project wallet. Switch to it in your wallet app."
+      : "<b style='color:var(--ink)'>Project wallet only.</b> Connect the project wallet to see unclaimed rewards across all holders.";
+    return;
+  }
+  gate.hidden = true; body.hidden = false;
+  if (!launched() || !reader || admin.loading) return;
+  if (!force && admin.totals && Date.now() - admin.loadedAt < 60000) { renderAdmin(); return; }
+  admin.loading = true;
+  const st = $("ad-status");
+  try {
+    setStatus(st, "Finding every wallet that has held $COMPANY…");
+    const addrs = await everHolders();
+    const t = new ethers.Contract(CONFIG.token, ABI.token, reader), h = new ethers.Contract(CONFIG.hook, ABI.hook, reader), n = CONFIG.assets.length;
+    setStatus(st, `Reading ${addrs.length} wallets…`);
+    const sys = await multiChunks(addrs.map((a) => [t, "isSystemAccount", [a]]), 300);
+    const users = addrs.filter((_, i) => !sys[i]), per = 4 + n;
+    const [r, tot] = await Promise.all([
+      multiChunks(users.flatMap((a) => [[t, "balanceOf", [a]], [t, "weightOf", [a]], [t, "rewardsOf", [a]], [t, "lastActive", [a]], ...CONFIG.assets.map((_, i) => [t, "expiredRewardsOf", [a, i]])])),
+      retry(() => multiRead([[h, "pendingHolderFees", [CONFIG.token]], ...CONFIG.assets.map((_, i) => [t, "owed", [i]]), ...CONFIG.assets.map((_, i) => [t, "pendingConvert", [i]])])),
+    ]);
+    const usd = (amounts) => amounts.reduce((x, v, i) => x + units(v) * priceOf(CONFIG.assets[i].sym), 0);
+    admin.rows = users.map((addr, k) => {
+      const o = k * per, rewards = [...r[o + 2]], expired = r.slice(o + 4, o + 4 + n);
+      return { addr, bal: r[o], weight: r[o + 1], rewards, last: Number(r[o + 3]), expired, unclaimedUsd: usd(rewards), expiredUsd: usd(expired),
+        has: rewards.some((v) => v > 0n), hasExpired: expired.some((v) => v > 0n) };
+    }).sort((a, b) => b.unclaimedUsd - a.unclaimedUsd || (b.bal > a.bal ? 1 : b.bal < a.bal ? -1 : 0));
+    admin.totals = { held: tot[0], owed: tot.slice(1, 1 + n), pc: tot.slice(1 + n, 1 + 2 * n) };
+    admin.loadedAt = Date.now();
+    setStatus(st, `${users.length} wallets have held $COMPANY. Updated ${new Date().toLocaleTimeString()}.`);
+    renderAdmin();
+  } catch (e) { setStatus(st, "Couldn't load: " + errMsg(e), "err"); }
+  admin.loading = false;
+}
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  return s < 3600 ? Math.max(1, Math.floor(s / 60)) + "m ago" : s < 86400 ? Math.floor(s / 3600) + "h ago" : Math.floor(s / 86400) + "d ago";
+}
+function untilExpiry(ts) {
+  const left = ts + 7 * 86400 - Date.now() / 1000;
+  return left > 86400 ? Math.floor(left / 86400) + "d " + Math.floor((left % 86400) / 3600) + "h" : Math.max(0, Math.floor(left / 3600)) + "h";
+}
+function rowStatus(w) {
+  if (w.hasExpired) return `<span class="t-bad">Expired</span><small>${fmtSmallUsd(w.expiredUsd)} to recycle</small>`;
+  if (!w.has) return w.weight > 0n ? `<span class="t-good">Earning</span>` : "—";
+  const left = w.last + 7 * 86400 - Date.now() / 1000;
+  return `<span class="${w.weight > 0n ? "t-good" : ""}">${w.weight > 0n ? "Earning" : "Not earning"}</span><small class="${left < 2 * 86400 ? "t-warn" : ""}">Expires in ${untilExpiry(w.last)}</small>`;
+}
+function renderAdmin() {
+  const T = admin.totals; if (!T) return;
+  const imd = priceOf("IMD"), n = CONFIG.assets.length;
+  const owedUsd = T.owed.reduce((x, v, i) => x + units(v) * priceOf(CONFIG.assets[i].sym), 0);
+  const withRewards = admin.rows.filter((w) => w.has), expired = admin.rows.filter((w) => w.hasExpired);
+  $("ad-unclaimed").textContent = fmtUsd(owedUsd, 2);
+  $("ad-unclaimed-s").textContent = `Credited to ${withRewards.length} wallets, not claimed yet. ${fmtTok(units(T.owed[0]))} IMD plus stocks.`;
+  $("ad-expired").textContent = fmtUsd(expired.reduce((x, w) => x + w.expiredUsd, 0), 2);
+  $("ad-expired-s").textContent = expired.length ? `${expired.length} wallet${expired.length === 1 ? "" : "s"}. Goes to the fee wallet when recycled.` : "Nothing has expired yet.";
+  $("ad-waiting").textContent = fmtUsd((units(T.held) + T.pc.reduce((x, v) => x + units(v), 0)) * imd, 2);
+  const f = admin.filter;
+  const rows = admin.rows.filter((w) => f === "all" || (f === "rewards" && w.has) || (f === "expired" && w.hasExpired) || (f === "sold" && w.has && w.weight === 0n));
+  $("ad-count").textContent = `${rows.length} of ${admin.rows.length}`;
+  $("ad-rows").innerHTML = rows.length ? rows.map((w) => {
+    const imdAmt = units(w.rewards[0]), stocks = w.rewards.slice(1).some((v) => v > 0n);
+    return `<tr><td><a href="#portfolio?address=${w.addr}">${short(w.addr)}</a><small><a href="${CONFIG.explorer}/address/${w.addr}" target="_blank" rel="noopener">Explorer ↗</a></small></td>
+      <td class="num">${fmtTok(units(w.bal))}<small>${w.weight > 0n ? "earning" : "below 100,000"}</small></td>
+      <td class="num">${w.has ? fmtSmallUsd(w.unclaimedUsd) : "—"}<small>${w.has ? fmtTok(imdAmt) + " IMD" + (stocks ? " + stocks" : "") : ""}</small></td>
+      <td class="num">${ago(w.last)}</td><td>${rowStatus(w)}</td></tr>`;
+  }).join("") : `<tr><td colspan="5" style="color:var(--muted)">No wallets match this filter.</td></tr>`;
+  $("ad-recycle").disabled = !expired.length || admin.recycling;
+  $("ad-recycle").textContent = expired.length ? `Recycle expired rewards (${expired.length})` : "Recycle expired rewards";
+}
+document.querySelectorAll("#view-admin [data-filter]").forEach((b) => b.addEventListener("click", () => {
+  admin.filter = b.dataset.filter;
+  document.querySelectorAll("#view-admin [data-filter]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  renderAdmin();
+}));
+$("ad-reload").addEventListener("click", () => loadAdmin(true));
+$("ad-csv").addEventListener("click", () => {
+  const syms = CONFIG.assets.map((a) => a.sym);
+  const head = ["wallet", "balance", "earning", "last_active_utc", "unclaimed_usd", ...syms.map((x) => "unclaimed_" + x), ...syms.map((x) => "expired_" + x)];
+  const lines = admin.rows.map((w) => [w.addr, units(w.bal), w.weight > 0n, w.last ? new Date(w.last * 1000).toISOString() : "", w.unclaimedUsd.toFixed(2),
+    ...w.rewards.map((v) => ethers.formatUnits(v, 18)), ...w.expired.map((v) => ethers.formatUnits(v, 18))].join(","));
+  const url = URL.createObjectURL(new Blob([[head.join(","), ...lines].join("\n")], { type: "text/csv" }));
+  const a = document.createElement("a"); a.href = url; a.download = `company-unclaimed-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+});
+$("ad-recycle").addEventListener("click", async () => {
+  const st = $("ad-recycle-status");
+  if (!isAdmin()) return;
+  if (!state.signer) return connect();
+  const list = admin.rows.filter((w) => w.hasExpired).map((w) => w.addr);
+  if (!list.length) return;
+  admin.recycling = true; $("ad-recycle").disabled = true;
+  const size = 15, batches = Math.ceil(list.length / size);
+  try {
+    let hash;
+    for (let i = 0; i < list.length; i += size) {
+      const part = batches > 1 ? ` (batch ${i / size + 1} of ${batches})` : "";
+      setStatus(st, "Confirm in your wallet" + part + "…");
+      const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).recycleMany(list.slice(i, i + size));
+      setStatus(st, "Recycling" + part + "…");
+      const rc = await tx.wait();
+      if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+      hash = tx.hash;
+    }
+    setStatusLink(st, "Done. Expired rewards were sent to the fee wallet.", CONFIG.explorer + "/tx/" + hash, "ok");
+  } catch (e) { setStatus(st, errMsg(e), "err"); }
+  admin.recycling = false;
+  await loadAdmin(true);
 });
 
 // ---------------------------------------------------------------- swap
@@ -1476,6 +1682,7 @@ if (state.viewing) loadPortfolio(); else showExample();
 refreshSwap();
 loadPrices().then(() => Promise.all([loadMetrics(), loadPool()])).then(() => { if (parseIn()) refreshSwap(); if (state.viewing) loadPortfolio(); });
 restoreWallet();
+if ($("view-admin").classList.contains("on")) loadAdmin();
 </script>
 </body>
 </html>
