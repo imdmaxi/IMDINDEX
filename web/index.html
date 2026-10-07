@@ -307,6 +307,16 @@ main { display: grid; }
 .rtable td:not(:first-child), .rtable th:not(:first-child) { padding-left: 14px; }
 .rtable td.act { width: 1%; white-space: nowrap; }
 .hold td.hbal small { display: none; }
+.lookup { display: grid; gap: 10px; box-shadow: var(--lift); }
+.lookup-head { display: flex; justify-content: space-between; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.lookup-viewing { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.lookup-row { display: flex; gap: 10px; }
+.lookup-row input { flex: 1; min-width: 0; height: 52px; border: 0; border-radius: 8px; padding: 0 14px; background: var(--card-2); font: 14px ui-monospace, "SF Mono", Menlo, monospace; outline: none; box-shadow: inset 0 0 0 1px transparent; }
+.lookup-row input:focus { box-shadow: inset 0 0 0 1px var(--line); }
+.lookup-row input::placeholder { font-family: var(--font); color: var(--muted); }
+.lookup .status:empty { display: none; }
+@media (max-width: 600px) { .lookup-row { flex-direction: column; } .lookup-row input { flex: none; width: 100%; } .lookup-row .btn { justify-content: center; } }
+.linkish { border: 0; background: none; padding: 0; color: var(--ink); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .add-inline { display: none; border: 0; background: none; padding: 0; margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 @media (max-width: 600px) {
   .hold .col-val, .hold td.act, .hold th:last-child { display: none; }
@@ -543,10 +553,21 @@ footer p { max-width: 95ch; }
   <!-- ============================================================ PORTFOLIO -->
   <div class="view" id="view-portfolio">
     <section class="sky page-sky">
-      <div class="wrap rise"><span class="eyebrow">/ Portfolio /</span><h1 id="pf-title">Your stake.</h1><p>Your balance, earning status and rewards in all six assets.</p></div>
+      <div class="wrap rise"><span class="eyebrow">/ Portfolio /</span><h1 id="pf-title">Your stake.</h1><p>Balance, earning status and rewards in all six assets, for your wallet or any address.</p></div>
     </section>
     <div class="wrap overlap" style="display:grid;gap:14px">
-      <div class="notice" id="pf-note" style="box-shadow:var(--lift)"></div>
+      <form class="card lookup" id="lookup-form" novalidate>
+        <div class="lookup-head">
+          <label class="tiny" for="lookup-input">Check any wallet</label>
+          <span class="lookup-viewing" id="lookup-viewing" hidden>Viewing <a class="addr" id="lookup-addr" target="_blank" rel="noopener"></a> · <button type="button" class="linkish" id="lookup-clear">Clear</button></span>
+        </div>
+        <div class="lookup-row">
+          <input id="lookup-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste a wallet address (0x…)" />
+          <button class="btn" type="submit">Check rewards</button>
+        </div>
+        <p class="status" id="lookup-status" role="status"></p>
+      </form>
+      <div class="notice" id="pf-note"></div>
       <div class="grid g3">
         <div class="card big-metric"><span class="tiny">Balance</span><span class="v num" id="pf-bal">—</span><p id="pf-share">—</p></div>
         <div class="card big-metric"><span class="tiny">Earning status</span><span class="v" id="pf-status">—</span><div class="meter" aria-hidden="true"><i id="pf-meter" style="width:0%"></i></div><p id="pf-status-s">Minimum 100,000 $COMPANY</p></div>
@@ -796,7 +817,13 @@ $("nav").addEventListener("click", (e) => { if (navbar.classList.contains("compa
 // ---------------------------------------------------------------- routing
 const ROUTES = ["home", "swap", "portfolio", "docs"];
 function route() {
-  const r = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home";
+  const [path, query] = location.hash.slice(1).split("?");
+  const r = ROUTES.includes(path) ? path : "home";
+  if (r === "portfolio") {
+    const v = parseAddress(new URLSearchParams(query || "").get("address"));
+    if (v !== state.viewing) { state.viewing = v; state.holdings = null; }
+    syncLookup();
+  }
   for (const name of ROUTES) $("view-" + name).classList.toggle("on", name === r);
   document.querySelectorAll(".links a").forEach((a) => { if (a.dataset.route === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   window.scrollTo({ top: 0 });
@@ -807,7 +834,7 @@ function refreshView() {
   if (!launched() || document.hidden) return;
   const on = (v) => $("view-" + v).classList.contains("on");
   if (on("home")) loadMetrics();
-  if (on("portfolio") && state.account) loadPortfolio();
+  if (on("portfolio")) { if (viewAddr()) loadPortfolio(); else showExample(); }
 }
 setInterval(refreshView, 30000);
 
@@ -944,6 +971,7 @@ async function connect() {
     state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
     state.account = await state.signer.getAddress();
     btn.textContent = short(state.account);
+    syncLookup();
     await Promise.all([loadPortfolio(), refreshSwap()]);
   } catch (e) { btn.textContent = state.account ? short(state.account) : "Connect"; }
 }
@@ -958,6 +986,7 @@ async function restoreWallet() {
     const chain = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
     if (chain === CONFIG.chainId) state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner(state.account);
     $("connect").textContent = state.signer ? short(state.account) : "Switch network";
+    syncLookup();
     await Promise.all([loadPortfolio(), refreshSwap()]);
   } catch (e) {}
 }
@@ -989,8 +1018,9 @@ function renderPortfolio(p) {
 }
 // Everything the wallet holds: $COMPANY, IMD and the five stocks, each with an Add button for the wallet app.
 const HOLD_ROWS = () => [{ sym: "COMPANY", label: "$COMPANY", name: "The Company", addr: CONFIG.token }, ...CONFIG.assets.map((a) => ({ ...a, label: a.sym }))];
-function renderHoldings(h, live) {
-  $("hold-pill").textContent = live ? "Your wallet" : "Example"; $("hold-pill").className = "pill " + (live ? "live" : "warn");
+function renderHoldings(h, live, own = true) {
+  $("hold-pill").textContent = !live ? "Example" : own ? "Your wallet" : "Viewing";
+  $("hold-pill").className = "pill" + (!live ? " warn" : own ? " live" : "");
   let total = 0, priced = true;
   $("hold-rows").innerHTML = HOLD_ROWS().map((a, i) => {
     const amt = h[a.sym] || 0, price = priceOf(a.sym), usd = amt * price;
@@ -1016,26 +1046,54 @@ $("hold-rows").addEventListener("click", async (e) => {
     setStatus(st, ok ? a.label + " is in your wallet app's token list." : a.label + " wasn't added.", ok ? "ok" : "");
   } catch (err) { setStatus(st, errMsg(err), "err"); }
 });
+// The wallet shown on Portfolio: a pasted address (read-only), else the connected wallet.
+const viewAddr = () => state.viewing || state.account;
+const isOwnView = () => Boolean(state.account && viewAddr() && viewAddr().toLowerCase() === state.account.toLowerCase());
+function parseAddress(v) {
+  v = (v || "").trim();
+  return hasEthers && /^0x[0-9a-fA-F]{40}$/.test(v) ? ethers.getAddress(v.toLowerCase()) : null;
+}
+function syncLookup() {
+  const v = state.viewing;
+  $("lookup-viewing").hidden = !v;
+  if (v) { $("lookup-addr").textContent = short(v) + " ↗"; $("lookup-addr").href = CONFIG.explorer + "/address/" + v; $("lookup-input").value = v; }
+  $("lookup-clear").textContent = state.account ? "Back to my wallet" : "Clear";
+}
+$("lookup-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const a = parseAddress($("lookup-input").value);
+  if (!a) { setStatus($("lookup-status"), "That isn't a wallet address. It starts with 0x and has 42 characters.", "err"); return; }
+  setStatus($("lookup-status"), "");
+  const target = "#portfolio?address=" + a; // shareable link to this wallet's rewards
+  if (location.hash === target) loadPortfolio(); else location.hash = target;
+});
+$("lookup-input").addEventListener("paste", () => setTimeout(() => { if (parseAddress($("lookup-input").value)) $("lookup-form").requestSubmit(); }, 0));
+$("lookup-input").addEventListener("input", () => setStatus($("lookup-status"), ""));
+$("lookup-clear").addEventListener("click", () => { $("lookup-input").value = ""; location.hash = "#portfolio"; });
 function showExample() {
   $("pf-title").textContent = "Your stake.";
   $("pf-pill").textContent = "Example"; $("pf-pill").className = "pill warn"; $("pf-pill").hidden = false;
   const n = $("pf-note"); n.hidden = false;
   n.innerHTML = launched()
-    ? "<b style='color:var(--ink)'>Example wallet.</b> Connect yours to see your own balance and rewards."
+    ? "<b style='color:var(--ink)'>Example wallet.</b> Connect yours, or paste any address above, to see real balances and rewards."
     : state.account
       ? "<b style='color:var(--ink)'>Wallet connected.</b> $COMPANY isn't deployed yet, so the figures below are an example."
       : "<b style='color:var(--ink)'>Example wallet.</b> $COMPANY isn't deployed yet. Connect after launch to see your own balance and rewards.";
   renderPortfolio({ balance: EXAMPLE.balance, share: EXAMPLE.share, lastActive: Date.now() / 1000 - EXAMPLE.lastActiveDaysAgo * 86400, rewards: EXAMPLE.rewards });
   renderHoldings(EXAMPLE.holdings, false);
+  state.holdings = null;
+  $("pf-waiting").hidden = true; $("fee-card").hidden = true;
+  if (!$("claim-status").classList.contains("ok")) setStatus($("claim-status"), "");
   $("claim-btn").disabled = true;
 }
 async function loadPortfolio() {
-  if (!state.account || !launched()) { showExample(); return; }
+  const me = viewAddr();
+  if (!me || !launched() || !reader) { showExample(); return; }
   const t = new ethers.Contract(CONFIG.token, ABI.token, reader), h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
-  const me = state.account, n = CONFIG.assets.length;
+  const own = isOwnView(), n = CONFIG.assets.length;
   // Show the wallet straight away, even before the numbers arrive.
   $("pf-title").textContent = short(me);
-  $("pf-pill").textContent = "Your wallet"; $("pf-pill").className = "pill live";
+  $("pf-pill").textContent = own ? "Your wallet" : "Viewing"; $("pf-pill").className = own ? "pill live" : "pill";
   $("pf-note").hidden = true;
   try {
     const r = await retry(() => multiRead([
@@ -1044,23 +1102,25 @@ async function loadPortfolio() {
       ...CONFIG.assets.map((_, i) => [t, "pendingConvert", [i]]),
       ...CONFIG.assets.map((a) => [new ethers.Contract(a.addr, ABI.erc20, reader), "balanceOf", [me]]),
     ]));
-    if (me !== state.account) return;
+    if (me !== viewAddr()) return;
     const [bal, weight, elig, rewards, last, held, feeTo, protocol] = r, pc = r.slice(8, 8 + n), owned = r.slice(8 + n, 8 + 2 * n);
     const holdings = { COMPANY: units(bal) }; CONFIG.assets.forEach((a, i) => { holdings[a.sym] = units(owned[i]); });
     state.holdings = holdings;
-    renderHoldings(holdings, true);
+    renderHoldings(holdings, true, own);
     const rw = {}; CONFIG.assets.forEach((a, i) => { rw[a.sym] = units(rewards[i]); });
     const share = elig > 0n ? units(weight) / units(elig) : 0;
     renderPortfolio({ balance: units(bal), share: share * 100, lastActive: Number(last), rewards: rw });
     // Your share of fees not credited yet: still in the hook, or waiting as IMD to buy stocks.
     const waiting = share * (units(held) + pc.reduce((x, v) => x + units(v), 0)) * priceOf("IMD");
     $("pf-waiting").hidden = !(waiting >= 0.01);
-    $("pf-waiting").innerHTML = `<b style="color:var(--ink)">Plus about ${fmtUsd(waiting, 2)} on the way.</b> That's your share of fees not credited yet. Your next claim credits it first. Stock purchases are capped per claim, so part of it may arrive with a later claim.`;
-    $("claim-btn").disabled = false;
-    if ($("claim-status").classList.contains("err")) setStatus($("claim-status"), "");
-    updateMockWallet(units(bal), share * 100, Object.entries(rw).reduce((x, [sym, v]) => x + v * priceOf(sym), 0));
-    // Protocol fee card, only for the fee wallet.
-    const isFeeWallet = feeTo.toLowerCase() === me.toLowerCase();
+    $("pf-waiting").innerHTML = `<b style="color:var(--ink)">Plus about ${fmtUsd(waiting, 2)} on the way.</b> That's ${own ? "your" : "this wallet's"} share of fees not credited yet. The next claim credits it first. Stock purchases are capped per claim, so part of it may arrive with a later claim.`;
+    // Only a wallet can claim its own rewards.
+    $("claim-btn").disabled = !own;
+    if (!own) setStatus($("claim-status"), state.account ? "You're viewing another wallet. Only that wallet can claim these rewards." : "Connect this wallet to claim its rewards.");
+    else if ($("claim-status").classList.contains("err") || /viewing another|Connect this wallet/.test($("claim-status").textContent)) setStatus($("claim-status"), "");
+    if (own) updateMockWallet(units(bal), share * 100, Object.entries(rw).reduce((x, [sym, v]) => x + v * priceOf(sym), 0));
+    // Protocol fee card, only for the fee wallet itself.
+    const isFeeWallet = own && feeTo.toLowerCase() === me.toLowerCase();
     $("fee-card").hidden = !isFeeWallet;
     if (isFeeWallet) {
       $("fee-pending").textContent = fmtTok(units(protocol)) + " IMD";
@@ -1068,7 +1128,7 @@ async function loadPortfolio() {
       $("fee-to").textContent = short(feeTo);
       $("fee-btn").disabled = protocol === 0n || swap.feeBusy;
     }
-  } catch (e) { setStatus($("claim-status"), "Couldn't read your wallet yet: " + errMsg(e) + " Retrying shortly.", "err"); }
+  } catch (e) { setStatus($("claim-status"), "Couldn't read this wallet yet: " + errMsg(e) + " Retrying shortly.", "err"); }
 }
 function updateMockWallet(balance, sharePct, earnedUsd) {
   $("mk-wlabel").textContent = "Your wallet";
@@ -1104,7 +1164,7 @@ $("claim-btn").addEventListener("click", async () => {
     setStatusLink(st, "Claimed. Your IMD and stocks are in your wallet.", CONFIG.explorer + "/tx/" + tx.hash, "ok");
     await loadPortfolio();
   } catch (e) { setStatus(st, errMsg(e), "err"); }
-  finally { $("claim-btn").disabled = !launched() || !state.account; }
+  finally { $("claim-btn").disabled = !launched() || !isOwnView(); }
 });
 
 // ---------------------------------------------------------------- swap
@@ -1377,8 +1437,8 @@ async function readSpot(at = {}) {
   const s = Number(sqrtP) / 2 ** 96, raw = s * s; // currency1 per currency0, both 18 decimals
   const imdPer = key.currency0.toLowerCase() === CONFIG.token.toLowerCase() ? raw : 1 / raw;
   state.prices.COMPANY = imdPer * priceOf("IMD");
-  if (state.account && state.holdings) renderHoldings(state.holdings, true);
-  else if (!state.account) renderHoldings(EXAMPLE.holdings, false);
+  if (viewAddr() && state.holdings) renderHoldings(state.holdings, true, isOwnView());
+  else if (!viewAddr()) renderHoldings(EXAMPLE.holdings, false);
   $("p-price").textContent = fmtSig(state.prices.COMPANY);
   $("p-price-imd").textContent = imdPer.toLocaleString("en-US", { maximumSignificantDigits: 4 }) + " IMD";
   $("p-mcap").textContent = fmtUsd(imdPer * 1e9 * priceOf("IMD"), 0) + " · " + fmtNum(imdPer * 1e9, 0) + " IMD";
@@ -1412,9 +1472,9 @@ renderSteps();
 renderBasket();
 renderContracts();
 syncSwapUi();
-showExample();
+if (state.viewing) loadPortfolio(); else showExample();
 refreshSwap();
-loadPrices().then(() => Promise.all([loadMetrics(), loadPool()])).then(() => { if (parseIn()) refreshSwap(); });
+loadPrices().then(() => Promise.all([loadMetrics(), loadPool()])).then(() => { if (parseIn()) refreshSwap(); if (state.viewing) loadPortfolio(); });
 restoreWallet();
 </script>
 </body>
