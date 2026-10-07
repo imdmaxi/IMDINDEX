@@ -166,6 +166,8 @@ p { margin: 0; }
 .tiny { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .bars { display: flex; align-items: end; gap: 5px; height: 60px; }
 .bars i { flex: 1; background: var(--ink); border-radius: 2px 2px 0 0; min-height: 4px; }
+.bar-labels { display: flex; gap: 5px; margin-top: -2px; }
+.bar-labels span { flex: 1; text-align: center; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); overflow: hidden; }
 .mock-bottom { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; }
 .latest { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
 .latest-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -375,7 +377,7 @@ footer p { max-width: 95ch; }
             <span class="pill warn" id="mk-tag">Example</span>
           </div>
           <div class="mock-total">
-            <span class="tiny">Total value paid to holders</span>
+            <span class="tiny" id="mk-total-label">Total value paid to holders</span>
             <span class="big num" id="mk-total">$1,284,906.12</span>
           </div>
           <div class="mock-pair">
@@ -383,19 +385,20 @@ footer p { max-width: 95ch; }
             <div><span class="tiny">Employees</span><b class="num">0</b></div>
           </div>
           <div style="display:grid;gap:8px">
-            <div style="display:flex;justify-content:space-between"><span class="tiny">Paid to holders, by week</span><span class="tiny num" id="mk-total-2">$1,284,906</span></div>
+            <div style="display:flex;justify-content:space-between"><span class="tiny" id="mk-bars-label">Paid to holders, by week</span><span class="tiny num" id="mk-total-2">$1,284,906</span></div>
             <div class="bars" id="mk-bars" aria-hidden="true"></div>
+            <div class="bar-labels" id="mk-bar-labels" aria-hidden="true" hidden></div>
           </div>
           <div class="mock-bottom">
             <div class="latest">
-              <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13px">Latest conversion</b><span class="tiny">5 stocks</span></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13px" id="mk-latest-label">Latest conversion</b><span class="tiny">5 stocks</span></div>
               <div class="latest-grid" id="mk-latest"></div>
             </div>
             <div class="demo">
-              <span class="tiny" style="color:inherit;opacity:.65">Example wallet</span>
-              <div><span class="tiny" style="color:inherit;opacity:.65">Balance</span><b class="num">4,835,239</b><span class="tiny" style="color:inherit;opacity:.65">$COMPANY</span></div>
+              <span class="tiny" style="color:inherit;opacity:.65" id="mk-wlabel">Example wallet</span>
+              <div><span class="tiny" style="color:inherit;opacity:.65">Balance</span><b class="num" id="mk-bal">4,835,239</b><span class="tiny" style="color:inherit;opacity:.65">$COMPANY</span></div>
               <div class="demo-row">
-                <div><span class="tiny" style="color:inherit;opacity:.65">Share</span><b class="num">0.48%</b></div>
+                <div><span class="tiny" style="color:inherit;opacity:.65">Share</span><b class="num" id="mk-share">0.48%</b></div>
                 <div><span class="tiny" style="color:inherit;opacity:.65">Earned</span><b class="num" id="mk-earned">$6,170</b></div>
               </div>
               <div class="mini-logos" id="mk-logos"></div>
@@ -414,7 +417,7 @@ footer p { max-width: 95ch; }
         <div class="metrics">
           <div><span class="v num" id="m-price">—</span><span class="caps">$COMPANY price</span><p>From the COMPANY/IMD pool.</p></div>
           <div><span class="v num" id="m-mcap">—</span><span class="caps">Market cap</span><p>1,000,000,000 supply, fully diluted.</p></div>
-          <div><span class="v num" id="m-paid">—</span><span class="caps">IMD paid out</span><p>Credited to holders, all time.</p></div>
+          <div><span class="v num" id="m-paid">—</span><span class="caps">Earned by holders</span><p>IMD and stocks, all time, including fees not yet distributed.</p></div>
           <div><span class="v num" id="m-eligible">—</span><span class="caps">Earning supply</span><p>Held by wallets with 100,000+ $COMPANY.</p></div>
         </div>
         <div style="display:flex;justify-content:center"><span class="pill" id="metrics-pill">Live after launch</span></div>
@@ -541,10 +544,23 @@ footer p { max-width: 95ch; }
         <div class="table-scroll">
           <table class="rtable"><thead><tr><th>Asset</th><th>Amount</th><th>Value</th></tr></thead><tbody id="pf-rows"></tbody></table>
         </div>
-        <p style="color:var(--muted);font-size:13px">Claiming also buys any stock still waiting as IMD and adds your share before paying, so you may receive slightly more than shown.</p>
+        <div class="notice" id="pf-waiting" hidden></div>
+        <p style="color:var(--muted);font-size:13px">Claiming first distributes waiting fees and buys the stocks waiting as IMD, then pays you, so you may receive more than shown.</p>
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
           <button class="btn" id="claim-btn" type="button" disabled>Claim all six assets</button>
           <p class="status" id="claim-status" role="status"></p>
+        </div>
+      </div>
+      <div class="card" id="fee-card" style="display:grid;gap:16px" hidden>
+        <div class="side-head"><h3>Protocol fees <span class="pill live" style="vertical-align:middle;margin-left:6px">Fee wallet</span></h3><span class="caps num" id="fee-usd">—</span></div>
+        <dl class="kv">
+          <div><dt>Ready to collect</dt><dd class="num" id="fee-pending">—</dd></div>
+          <div><dt>Paid to</dt><dd class="addr" id="fee-to">—</dd></div>
+        </dl>
+        <p style="color:var(--muted);font-size:13px">The 1% protocol fee builds up in the hook as IMD. Collecting sends all of it to the fee wallet. Anyone can trigger it, and the IMD always goes to the fee wallet.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn" id="fee-btn" type="button">Collect protocol fees</button>
+          <p class="status" id="fee-status" role="status"></p>
         </div>
       </div>
     </div>
@@ -643,6 +659,7 @@ const CONFIG = {
   quoter: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94", // Uniswap V4Quoter on Robinhood Chain
   imdEthPool: { fee: 10000, tickSpacing: 100, hooks: "0x0000000000000000000000000000000000000000" }, // ETH route used by CompanyEthRouter
   ethUsdFeed: "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9", // Chainlink ETH / USD
+  multicall: "0xcA11bde05977b3631167028862bE2a173976CA11", // Multicall3: one request, one block for every read
   // tokenIs0: whether the asset is currency0 in its USDG pool (USDG has 6 decimals, the rest 18)
   assets: [
     { sym: "IMD", name: "Identity.md", addr: "0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127", share: 50, tile: "#191918", pool: "0xaf5bcd88bb2b6084ca18319385b61fcbe17ec579032074861004f2668168406f", tokenIs0: true },
@@ -676,9 +693,10 @@ const ABI = {
   token: [
     "function balanceOf(address) view returns (uint256)", "function eligibleSupply() view returns (uint256)", "function weightOf(address) view returns (uint256)",
     "function rewardsOf(address) view returns (uint256[6])", "function lastActive(address) view returns (uint256)", "function totalDistributed(uint256) view returns (uint256)",
-    "function claim() returns (uint256[6])", "function nonces(address) view returns (uint256)",
+    "function claim() returns (uint256[6])", "function nonces(address) view returns (uint256)", "function pendingConvert(uint256) view returns (uint256)",
   ],
-  hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))"],
+  hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))",
+    "function pendingHolderFees(address) view returns (uint256)", "function feeRecipient() view returns (address)", "function collectProtocolFees(address)"],
   router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)", "function sell(address,uint256,uint256,uint256) returns (uint256)", "function sellWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
   ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)", "function sellForEth(address,uint256,uint256,uint256) returns (uint256)", "function sellForEthWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
   // V4Quoter runs the real swap (hook fee included) and reverts with the result, so it is called with eth_call.
@@ -687,6 +705,7 @@ const ABI = {
     "function quoteExactInput((address exactCurrency,(address intermediateCurrency,uint24 fee,int24 tickSpacing,address hooks,bytes hookData)[] path,uint128 exactAmount) params) returns (uint256 amountOut,uint256 gasEstimate)",
   ],
   feed: ["function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)"],
+  multicall: ["function aggregate3((address target,bool allowFailure,bytes callData)[] calls) payable returns ((bool success,bytes returnData)[])"],
 };
 
 // ---------------------------------------------------------------- helpers
@@ -761,7 +780,14 @@ function route() {
   window.scrollTo({ top: 0 });
   onScroll();
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => { route(); refreshView(); });
+function refreshView() {
+  if (!launched() || document.hidden) return;
+  const on = (v) => $("view-" + v).classList.contains("on");
+  if (on("home")) loadMetrics();
+  if (on("portfolio") && state.account) loadPortfolio();
+}
+setInterval(refreshView, 30000);
 
 // ---------------------------------------------------------------- static renders
 function renderSteps() {
@@ -769,11 +795,25 @@ function renderSteps() {
   $("home-steps").innerHTML = html; $("docs-steps").innerHTML = html;
 }
 function renderMock() {
-  $("mk-bars").innerHTML = EXAMPLE.bars.map((h) => `<i style="height:${(h / 60) * 100}%"></i>`).join("");
-  $("mk-latest").innerHTML = Object.entries(EXAMPLE.latest).map(([sym, amt]) => {
-    const a = asset(sym);
-    return `<div class="lchip">${mono(a, "sm")}<span>${sym}</span><span class="r num">+${fmtTok(amt)}<small>${fmtUsd(amt * state.prices[sym], 2)}</small></span></div>`;
-  }).join("");
+  const m = state.metrics;
+  if (!m) {
+    $("mk-bars").innerHTML = EXAMPLE.bars.map((h) => `<i style="height:${(h / 60) * 100}%"></i>`).join("");
+    $("mk-latest").innerHTML = Object.entries(EXAMPLE.latest).map(([sym, amt]) => {
+      const a = asset(sym);
+      return `<div class="lchip">${mono(a, "sm")}<span>${sym}</span><span class="r num">+${fmtTok(amt)}<small>${fmtUsd(amt * state.prices[sym], 2)}</small></span></div>`;
+    }).join("");
+  } else {
+    // Live: what holders have earned in each asset (paid out, waiting as IMD, and still in the hook).
+    const usd = assetValues(m), max = Math.max(...usd, 1e-9);
+    $("mk-bars").innerHTML = usd.map((v) => `<i style="height:${Math.max(4, (v / max) * 100)}%"></i>`).join("");
+    $("mk-bar-labels").innerHTML = CONFIG.assets.map((a) => `<span>${a.sym}</span>`).join(""); $("mk-bar-labels").hidden = false;
+    $("mk-bars-label").textContent = "Earned by holders, by asset";
+    $("mk-latest-label").textContent = "Stocks for holders";
+    $("mk-latest").innerHTML = CONFIG.assets.slice(1).map((a, j) => {
+      const i = j + 1, bought = units(m.dist[i]), queued = units(m.pc[i]) * priceOf("IMD");
+      return `<div class="lchip">${mono(a, "sm")}<span>${a.sym}</span><span class="r num">${fmtTok(bought)}<small>${bought > 0 ? fmtUsd(bought * priceOf(a.sym), 2) : queued > 0 ? "queued " + fmtSmallUsd(queued) : "—"}</small></span></div>`;
+    }).join("");
+  }
   $("mk-logos").innerHTML = CONFIG.assets.slice(1).map((a) => mono(a, "xs")).join("");
 }
 function renderBasket() {
@@ -812,26 +852,49 @@ async function loadPrices() {
   try { state.prices.ETH = Number((await new ethers.Contract(CONFIG.ethUsdFeed, ABI.feed, reader).latestRoundData())[1]) / 1e8; } catch (e) {}
   renderBasket();
 }
+// Reads many view calls in one request (Multicall3), all at the same block.
+async function multiRead(calls) {
+  const mc = new ethers.Contract(CONFIG.multicall, ABI.multicall, reader);
+  const res = await mc.aggregate3.staticCall(calls.map(([c, fn, args]) => ({ target: c.target, allowFailure: false, callData: c.interface.encodeFunctionData(fn, args || []) })));
+  return res.map((r, i) => { const v = calls[i][0].interface.decodeFunctionResult(calls[i][1], r.returnData); return v.length === 1 ? v[0] : v; });
+}
+async function retry(fn, tries = 3) {
+  for (let i = 1; ; i++) { try { return await fn(); } catch (e) { if (i >= tries) throw e; await new Promise((r) => setTimeout(r, 600 * i)); } }
+}
+// Holder fees wait in the hook until a CompanyRouter trade or a claim distributes them; half of each distribution
+// then waits as IMD until a claim buys the stocks. Holder totals count all three stages.
+function assetValues(m) {
+  const imd = priceOf("IMD"), held = units(m.held);
+  return CONFIG.assets.map((a, i) => i === 0
+    ? (units(m.dist[0]) + held * 0.5) * imd
+    : units(m.dist[i]) * priceOf(a.sym) + (units(m.pc[i]) + held * 0.1) * imd);
+}
 async function loadMetrics() {
   const pill = $("metrics-pill");
   if (!launched() || !reader) { pill.textContent = "Live after launch"; return; }
   try {
-    const t = new ethers.Contract(CONFIG.token, ABI.token, reader);
-    const h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
-    const [mcap, paid, elig] = await Promise.all([h.marketCap(CONFIG.token), t.totalDistributed(0), t.eligibleSupply()]);
-    const imdUsd = state.prices.IMD, mcapImd = units(mcap);
-    $("m-price").textContent = fmtUsd((mcapImd / 1e9) * imdUsd, 6);
+    const t = new ethers.Contract(CONFIG.token, ABI.token, reader), h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
+    const n = CONFIG.assets.length;
+    const r = await retry(() => multiRead([
+      [h, "marketCap", [CONFIG.token]], [t, "eligibleSupply"], [h, "pendingHolderFees", [CONFIG.token]],
+      ...CONFIG.assets.map((_, i) => [t, "totalDistributed", [i]]),
+      ...CONFIG.assets.map((_, i) => [t, "pendingConvert", [i]]),
+    ]));
+    const m = { mcap: r[0], elig: r[1], held: r[2], dist: r.slice(3, 3 + n), pc: r.slice(3 + n, 3 + 2 * n) };
+    state.metrics = m;
+    const imdUsd = priceOf("IMD"), mcapImd = units(m.mcap);
+    const holderUsd = assetValues(m).reduce((x, y) => x + y, 0);
+    const feesImd = imdUsd ? holderUsd / imdUsd / 0.75 : 0; // holders get 3 of the 4 points
+    $("m-price").textContent = fmtSig((mcapImd / 1e9) * imdUsd);
     $("m-mcap").textContent = fmtUsd(mcapImd * imdUsd, 0);
-    $("m-paid").textContent = fmtNum(units(paid), 0) + " IMD";
-    $("m-eligible").textContent = fmtNum(units(elig) / 1e6, 1) + "M";
+    $("m-paid").textContent = fmtUsd(holderUsd, holderUsd < 1000 ? 2 : 0);
+    $("m-eligible").textContent = fmtNum(units(m.elig) / 1e6, 1) + "M";
     pill.textContent = "Live"; pill.className = "pill live";
-    // the hero dashboard shows real totals once live
-    let total = 0;
-    const totals = await Promise.all(CONFIG.assets.map((_, i) => t.totalDistributed(i)));
-    totals.forEach((v, i) => { total += units(v) * state.prices[CONFIG.assets[i].sym]; });
-    $("mk-total").textContent = fmtUsd(total, 2); $("mk-total-2").textContent = fmtUsd(total, 0);
-    $("mk-fees").textContent = fmtNum((units(paid) / 0.5) / 0.75, 0) + " IMD";
+    $("mk-total-label").textContent = "Total value earned by holders";
+    $("mk-total").textContent = fmtUsd(holderUsd, 2); $("mk-total-2").textContent = fmtUsd(holderUsd, 0);
+    $("mk-fees").textContent = "≈ " + fmtNum(feesImd, feesImd < 100 ? 2 : 0) + " IMD";
     $("mk-tag").textContent = "Live"; $("mk-tag").className = "pill live";
+    renderMock();
   } catch (e) { pill.textContent = "Couldn't reach Robinhood Chain"; }
 }
 
@@ -860,7 +923,21 @@ async function connect() {
     state.account = await state.signer.getAddress();
     btn.textContent = short(state.account);
     await Promise.all([loadPortfolio(), refreshSwap()]);
-  } catch (e) { btn.textContent = "Connect"; }
+  } catch (e) { btn.textContent = state.account ? short(state.account) : "Connect"; }
+}
+// A wallet that already approved this site reconnects on load without a prompt. On another network the site still
+// reads the wallet; the first action asks to switch.
+async function restoreWallet() {
+  if (!window.ethereum || !hasEthers) return;
+  try {
+    const accs = await window.ethereum.request({ method: "eth_accounts" });
+    if (!accs || !accs.length) return;
+    state.account = ethers.getAddress(accs[0]);
+    const chain = parseInt(await window.ethereum.request({ method: "eth_chainId" }), 16);
+    if (chain === CONFIG.chainId) state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner(state.account);
+    $("connect").textContent = state.signer ? short(state.account) : "Switch network";
+    await Promise.all([loadPortfolio(), refreshSwap()]);
+  } catch (e) {}
 }
 $("connect").addEventListener("click", connect);
 if (window.ethereum && window.ethereum.on) {
@@ -902,17 +979,62 @@ function showExample() {
 }
 async function loadPortfolio() {
   if (!state.account || !launched()) { showExample(); return; }
+  const t = new ethers.Contract(CONFIG.token, ABI.token, reader), h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
+  const me = state.account, n = CONFIG.assets.length;
+  // Show the wallet straight away, even before the numbers arrive.
+  $("pf-title").textContent = short(me);
+  $("pf-pill").textContent = "Your wallet"; $("pf-pill").className = "pill live";
+  $("pf-note").hidden = true;
   try {
-    const t = new ethers.Contract(CONFIG.token, ABI.token, reader);
-    const [bal, weight, elig, rewards, last] = await Promise.all([t.balanceOf(state.account), t.weightOf(state.account), t.eligibleSupply(), t.rewardsOf(state.account), t.lastActive(state.account)]);
-    const r = {}; CONFIG.assets.forEach((a, i) => { r[a.sym] = units(rewards[i]); });
-    $("pf-title").textContent = short(state.account);
-    $("pf-pill").textContent = "Your wallet"; $("pf-pill").className = "pill live";
-    $("pf-note").hidden = true;
-    renderPortfolio({ balance: units(bal), share: elig > 0n ? (units(weight) / units(elig)) * 100 : 0, lastActive: Number(last), rewards: r });
+    const r = await retry(() => multiRead([
+      [t, "balanceOf", [me]], [t, "weightOf", [me]], [t, "eligibleSupply"], [t, "rewardsOf", [me]], [t, "lastActive", [me]],
+      [h, "pendingHolderFees", [CONFIG.token]], [h, "feeRecipient"], [h, "pendingProtocolFees", [CONFIG.assets[0].addr]],
+      ...CONFIG.assets.map((_, i) => [t, "pendingConvert", [i]]),
+    ]));
+    if (me !== state.account) return;
+    const [bal, weight, elig, rewards, last, held, feeTo, protocol] = r, pc = r.slice(8, 8 + n);
+    const rw = {}; CONFIG.assets.forEach((a, i) => { rw[a.sym] = units(rewards[i]); });
+    const share = elig > 0n ? units(weight) / units(elig) : 0;
+    renderPortfolio({ balance: units(bal), share: share * 100, lastActive: Number(last), rewards: rw });
+    // Your share of fees not credited yet: still in the hook, or waiting as IMD to buy stocks.
+    const waiting = share * (units(held) + pc.reduce((x, v) => x + units(v), 0)) * priceOf("IMD");
+    $("pf-waiting").hidden = !(waiting >= 0.01);
+    $("pf-waiting").innerHTML = `<b style="color:var(--ink)">Plus about ${fmtUsd(waiting, 2)} on the way.</b> That's your share of fees not credited yet. Your next claim credits it first. Stock purchases are capped per claim, so part of it may arrive with a later claim.`;
     $("claim-btn").disabled = false;
-  } catch (e) { setStatus($("claim-status"), "Couldn't read your rewards: " + errMsg(e), "err"); }
+    if ($("claim-status").classList.contains("err")) setStatus($("claim-status"), "");
+    updateMockWallet(units(bal), share * 100, Object.entries(rw).reduce((x, [sym, v]) => x + v * priceOf(sym), 0));
+    // Protocol fee card, only for the fee wallet.
+    const isFeeWallet = feeTo.toLowerCase() === me.toLowerCase();
+    $("fee-card").hidden = !isFeeWallet;
+    if (isFeeWallet) {
+      $("fee-pending").textContent = fmtTok(units(protocol)) + " IMD";
+      $("fee-usd").textContent = fmtUsd(units(protocol) * priceOf("IMD"), 2);
+      $("fee-to").textContent = short(feeTo);
+      $("fee-btn").disabled = protocol === 0n || swap.feeBusy;
+    }
+  } catch (e) { setStatus($("claim-status"), "Couldn't read your wallet yet: " + errMsg(e) + " Retrying shortly.", "err"); }
 }
+function updateMockWallet(balance, sharePct, earnedUsd) {
+  $("mk-wlabel").textContent = "Your wallet";
+  $("mk-bal").textContent = fmtNum(balance, 0);
+  $("mk-share").textContent = fmtNum(sharePct, 2) + "%";
+  $("mk-earned").textContent = fmtUsd(earnedUsd, 2);
+}
+$("fee-btn").addEventListener("click", async () => {
+  const st = $("fee-status");
+  if (!state.signer) return connect();
+  swap.feeBusy = true; $("fee-btn").disabled = true;
+  try {
+    setStatus(st, "Confirm in your wallet…");
+    const tx = await new ethers.Contract(CONFIG.hook, ABI.hook, state.signer).collectProtocolFees(CONFIG.assets[0].addr);
+    setStatus(st, "Collecting…");
+    const rc = await tx.wait();
+    if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+    setStatusLink(st, "Collected. The IMD is in the fee wallet.", CONFIG.explorer + "/tx/" + tx.hash, "ok");
+  } catch (e) { setStatus(st, errMsg(e), "err"); }
+  swap.feeBusy = false;
+  await loadPortfolio();
+});
 $("claim-btn").addEventListener("click", async () => {
   const st = $("claim-status");
   if (!state.signer) return connect();
@@ -923,7 +1045,7 @@ $("claim-btn").addEventListener("click", async () => {
     const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim({ gasLimit: 8_000_000n });
     setStatus(st, "Claiming… " + short(tx.hash));
     await tx.wait();
-    setStatus(st, "Claimed. Your IMD and stocks are in your wallet.", "ok");
+    setStatusLink(st, "Claimed. Your IMD and stocks are in your wallet.", CONFIG.explorer + "/tx/" + tx.hash, "ok");
     await loadPortfolio();
   } catch (e) { setStatus(st, errMsg(e), "err"); }
   finally { $("claim-btn").disabled = !launched() || !state.account; }
@@ -1235,6 +1357,7 @@ syncSwapUi();
 showExample();
 refreshSwap();
 loadPrices().then(() => Promise.all([loadMetrics(), loadPool()])).then(() => { if (parseIn()) refreshSwap(); });
+restoreWallet();
 </script>
 </body>
 </html>
