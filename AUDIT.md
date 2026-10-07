@@ -34,7 +34,7 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 4. **Conversion can't be profitably sandwiched or drained:** the per-round cap, the per-stock 1-minute spacing (many claims in one transaction convert once), the self-call isolation, the fixed 20 IMD round ceiling (`MAX_ROUND_IMD`) on top of the `maxConvert` depth read, and the per-stock pool limit (`stockRoundLimit`). Can a round be made to sell more than its ceiling or limits?
 5. **Minimum holding:** `eligibleSupply` always equals the sum of weights; crossing 100,000 either way never changes rewards already earned.
 6. **Expiry:** `recycle` never moves more than `expiredRewardsOf`, and only to `feeRecipient`.
-7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock whose token or pool refuses the purchase falls back to IMD at once; a stock blocked by a price, feed or IMD/USDG-pool problem falls back only after waiting 30 days without a real purchase and failing for at least a day; never because the caller sent too little gas.
+7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; only a stock token refusing this contract (`StockRefused`) falls back to IMD at once; every other problem is a skip, and a stock falls back only after 30 days of failed attempts with no gap over 7 days (`failingSince`, `lastFailure`); never because the caller sent too little gas, and never by buying dust (`MIN_ROUND_IMD`).
 8. **No privileged control over balances, fees or transfers:** the token's owner is renounced; the hook owner can only `openPool` once and change `feeRecipient`.
 
 ## 4. Resolved: IMD Swarm audit 78c00339 (on commit 9fe5e93)
@@ -104,7 +104,25 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 5 | Info: README and NatSpec misstated the price checks and depth | Corrected. |
 | 6 | Info: no tests for the first-hop drift skip or stale ETH/USD and USDG/USD feeds | `test_final4_6a_imdEthDriftSkipsEverything`, `test_final4_6b_staleEthOrUsdgFeedHoldsEverything`. |
 
-## 10. Known and accepted
+## 10. Resolved: IMD Swarm final check 5 4d037a63 (on commit 08ff797)
+
+The fallback rules had grown in layers (immediate fallbacks for empty and dust pools, a 30-day waiting clock, a one-day failing clock) and each round found a new seam between them. They are replaced by one rule:
+
+- Every round either buys a real amount (at least `MIN_ROUND_IMD` = 0.4 IMD, or the whole reserve if smaller) or skips. No dust purchases.
+- Only a stock token refusing this contract (`StockRefused`, from `PoolManager.take`) is paid as IMD at once.
+- Everything else is a skip. A stock whose attempts keep failing for `DEAD_AFTER` (30 days) with no gap over `FAILING_GAP` (7 days) between them is paid as IMD, `min(reserve, 4 IMD)` per round. A longer gap restarts the clock.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | Medium: dust-only purchases never reached the stuck rule | No dust purchases: a round below `MIN_ROUND_IMD` is a skip, so the stuck rule always applies. `test_final4_1b_dustStockPoolDoesNotThrottleFallback`. |
+| 2 | Low: `failingSince` never decayed | A gap over 7 days between failed attempts restarts the clock. `test_final5_2_isolatedSkipThenQuietMonthDoesNotPay`. |
+| 3 | Low: zero liquidity at the tick paid a full round as IMD at once | It is a skip. `test_final5_3_priceInGapIsNotPaidAsImdAtOnce`, `test_recheck2_zeroLiquidityRoundPaidAsImd_noSwap`. |
+| 4 | Low: a partial fill near a position's edge paid a full round as IMD at once | Any swap failure other than `StockRefused` is a skip. `test_final5_4_partialFillNearEdgeIsASkip`. |
+| 5 | Info: usability and "real purchase" thresholds disagreed | One threshold (`MIN_ROUND_IMD`) for both. `test_final5_5_shallowImdPoolThresholdsAgree`. |
+| 6 | Info: README described the old fallback size | Corrected. |
+| 7 | Info: `_swapFee` comment named only two pools | Corrected: the protocol fee is read per pool and direction and is on for all six route pools. |
+
+## 11. Known and accepted
 
 - **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variants are closed: claim and recycle refuse to run mid-unlock, and tokens received from the PoolManager in the current transaction never count toward "recent" rewards.
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.

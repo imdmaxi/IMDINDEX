@@ -711,14 +711,13 @@ contract CompanyTest is Test {
         token.minStockOut(1, 1e18);
     }
 
-    /// @dev Finding 2: no liquidity at the stock pool's price. The round is paid as IMD without a swap, so a resting
-    ///      position far away can't sell into it.
+    /// @dev f1d5def3 finding 2 / 4d037a63 finding 3: no liquidity at the stock pool's price. Nothing is swapped, so a
+    ///      far resting position can't sell into the round; the stock waits (nothing paid as IMD at once).
     function test_recheck2_zeroLiquidityRoundPaidAsImd_noSwap() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
         lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
-        // a far-away resting position on the side the purchase moves toward
         address attacker = makeAddr("attacker");
         usdg.mint(attacker, 10_000e18);
         stocks[0].mint(attacker, 10_000e18);
@@ -731,12 +730,12 @@ contract CompanyTest is Test {
         vm.stopPrank();
         assertEq(token.stockRoundLimit(1), 0);
         vm.warp(block.timestamp + 1 minutes);
-        uint256 round = token.maxConvert() / 5;
         uint256 owedImd = token.owed(0);
         uint256 nvdaHeld = stocks[0].balanceOf(address(token));
         token.convert();
         assertEq(stocks[0].balanceOf(address(token)), nvdaHeld, "no NVDA bought from the resting position");
-        assertEq(token.owed(0), owedImd + round, "this round's NVDA money paid as IMD");
+        assertEq(token.owed(0), owedImd, "not paid as IMD at once: the stock waits");
+        assertEq(token.pendingConvert(1), 6e18);
     }
 
     // ------------------------------------------------------------ expiry
@@ -927,18 +926,15 @@ contract CompanyTest is Test {
         assertLe(imd.balanceOf(attacker) + usdg.balanceOf(attacker), before, "sandwich not profitable");
     }
 
-    /// @dev Finding 2: each stock's round is also limited by its own pool, so a thin stock pool takes only a small
-    ///      round.
+    /// @dev Finding 2 (78c00339): each stock's round is also limited by its own pool.
     function test_audit2_thinStockPoolLimitsItsRound() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
-        // deep pools: the limit is far above the round
         assertApproxEqRel(token.stockRoundLimit(1), 1_500e18, 0.01e18);
-        // the NVDA pool loses almost all its liquidity
         PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
-        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_900e18, 0), "");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_000e18, 0), "");
         uint256 limit = token.stockRoundLimit(1);
-        assertApproxEqRel(limit, 0.15e18, 0.01e18);
+        assertApproxEqRel(limit, 1.5e18, 0.01e18);
         vm.warp(block.timestamp + 1 minutes);
         uint256 pending = token.pendingConvert(1);
         token.convert();
@@ -1068,43 +1064,33 @@ contract CompanyTest is Test {
         assertEq(token.expiredRewardsOf(address(f), 0), 0);
     }
 
-    /// @dev Finding 3 (medium): a feed dead for 30 days hands that stock's rounds to holders as IMD; a weekend-stale
-    ///      one still just waits.
+    /// @dev 363ab052 finding 3: a stale feed waits; after 30 days of failed attempts the stock is paid as IMD.
     function test_final3_deadFeedFallsBackToImdAfter30Days() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
-        vm.warp(block.timestamp + 5 days);
-        feeds[0].set(1e8, block.timestamp - 5 days); // stale, not dead
-        _refreshFeedsExcept(0);
-        token.convert();
+        _attemptEvery6Days(6, 1);
         assertEq(token.pendingConvert(1), 6e18, "stale: waits");
-        vm.warp(block.timestamp + 26 days); // now 31 days without an update
-        _refreshFeedsExcept(0);
-        uint256 owedImd = token.owed(0);
-        token.convert();
-        assertEq(token.pendingConvert(1), 6e18 - 4e18, "dead: one round paid as IMD");
-        assertEq(token.owed(0), owedImd + 4e18);
+        assertGt(token.pendingConvert(2), 6e18 - 4e18 - 1, "other stocks convert normally");
+        _attemptEvery6Days(30, 1);
+        assertEq(token.pendingConvert(1), 2e18, "dead: one full round paid as IMD");
     }
 
-    /// @dev Finding 3 of 363ab052 (and 986abba2 finding 4): an IMD/USDG pool with no liquidity. Rounds wait, then
-    ///      after 30 days without a purchase they are paid as IMD, with no daily keeper needed.
+    /// @dev 363ab052 finding 3 / 986abba2 finding 4: an IMD/USDG pool with no liquidity. Rounds wait, then after
+    ///      30 days of failed attempts (weekly claims are enough) they are paid as IMD.
     function test_final3_emptyImdPoolFallsBackToImdAfter30Days() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
         lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
         assertEq(token.maxConvert(), 0);
-        vm.warp(block.timestamp + 1 minutes);
-        token.convert();
-        assertEq(token.pendingConvert(1), 6e18, "waits at first");
-        vm.warp(block.timestamp + 30 days); // nobody calls in between
-        _refreshFeedsExcept(99);
+        _attemptEvery6Days(24, 0);
+        assertEq(token.pendingConvert(1), 6e18, "waits");
         uint256 owedImd = token.owed(0);
-        token.convert();
+        _attemptEvery6Days(12, 0);
         assertEq(token.owed(0), owedImd + 5 * 4e18, "every stock's round paid as IMD");
     }
 
-    /// @dev Finding 4 (low): a dust position no longer holds back the empty-pool fallback.
+    /// @dev 363ab052 finding 4: a dust position in an emptied stock pool neither buys dust nor blocks the fallback.
     function test_final4_dustPositionCountsAsEmpty() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
@@ -1112,11 +1098,8 @@ contract CompanyTest is Test {
         lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
         lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, 2e9, 0), "");
         assertGt(token.stockRoundLimit(1), 0);
-        vm.warp(block.timestamp + 1 minutes);
-        uint256 owedImd = token.owed(0);
-        token.convert();
-        assertEq(token.pendingConvert(1), 6e18 - 4e18, "round paid as IMD");
-        assertEq(token.owed(0), owedImd + 4e18);
+        _attemptEvery6Days(36, 0);
+        assertEq(token.pendingConvert(1), 2e18, "paid as IMD after 30 days of failing");
     }
 
     /// @dev Finding 6 (info): the pool's own fee is excluded before the 3% tolerance, so a 2.5% gap still converts
@@ -1128,6 +1111,18 @@ contract CompanyTest is Test {
         feeds[0].set(0.975e8, block.timestamp); // Chainlink 2.5% below the pool
         uint256[6] memory out = token.convert();
         assertGt(out[1], 0, "within 3% after the 0.3% fee: bought");
+    }
+
+    /// @dev Calls convert() every 6 days for `daysTotal` days (fresh feeds; `mode` 1 keeps NVDA's feed stale, 2 makes
+    ///      it answer 0), as weekly claims would.
+    function _attemptEvery6Days(uint256 daysTotal, uint256 mode) internal {
+        for (uint256 t; t < daysTotal; t += 6) {
+            vm.warp(block.timestamp + 6 days);
+            _refreshFeedsExcept(mode == 0 ? 99 : 0);
+            if (mode == 1) feeds[0].set(1e8, block.timestamp - 5 days);
+            if (mode == 2) feeds[0].set(0, block.timestamp);
+            token.convert();
+        }
     }
 
     function _refreshFeedsExcept(uint256 skip) internal {
@@ -1172,7 +1167,8 @@ contract CompanyTest is Test {
         assertEq(token.recycledHeld(0), expired, "but only after forfeiting what had expired");
     }
 
-    /// @dev 882666b4 finding 3: a dust IMD/USDG position still counts as empty.
+    /// @dev 882666b4 finding 3: a dust IMD/USDG position can't buy a real round: skipped, then after 30 days of
+    ///      failed attempts paid as IMD in full rounds.
     function test_final2_3_dustImdPoolStillCountsAsEmpty() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
@@ -1180,34 +1176,25 @@ contract CompanyTest is Test {
         lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
         lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, 10_000, 0), "");
         assertGt(token.maxConvert(), 0);
-        vm.warp(block.timestamp + 31 days);
-        _refreshFeedsExcept(99);
-        token.convert(); // a quiet month: this first failed attempt only starts the failing clock
-        assertEq(token.pendingConvert(1), 6e18, "not paid on the first attempt after a quiet month");
-        vm.warp(block.timestamp + 1 days);
-        _refreshFeedsExcept(99);
-        token.convert();
-        assertEq(token.pendingConvert(1), 2e18, "paid as IMD (full round) once failing for a day");
+        _attemptEvery6Days(24, 0);
+        assertEq(token.pendingConvert(1), 6e18, "still waiting after 24 days");
+        _attemptEvery6Days(12, 0);
+        assertEq(token.pendingConvert(1), 2e18, "paid as IMD (full round) after 30 days of failing");
     }
 
-    /// @dev Finding 4 (low): a feed that answers 0 (or reverts) for a while holds the stock; it isn't dead at once.
+    /// @dev 882666b4 finding 4: a feed that answers 0 holds the stock; it is paid as IMD only after 30 days of
+    ///      failed attempts.
     function test_final2_4_unusableFeedHoldsUntilDeadAfter() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         vm.warp(block.timestamp + 1 minutes);
-        token.convert(); // a good read: feedLastGood is now
-        _buy(bob, 1_000e18);
-        uint256 pending = token.pendingConvert(1);
-        vm.warp(block.timestamp + 1 minutes);
         feeds[0].set(0, block.timestamp);
         uint256 owedImd = token.owed(0);
         token.convert();
-        assertEq(token.pendingConvert(1), pending, "held, not paid as IMD");
-        assertEq(token.owed(0) >= owedImd, true);
-        vm.warp(block.timestamp + 31 days);
-        _refreshFeedsExcept(0);
-        token.convert();
-        assertLt(token.pendingConvert(1), pending, "dead after 30 days without a usable answer");
+        assertEq(token.pendingConvert(1), 6e18, "held, not paid as IMD");
+        assertEq(token.owed(0), owedImd);
+        _attemptEvery6Days(36, 2);
+        assertLt(token.pendingConvert(1), 6e18, "paid as IMD after 30 days without a usable answer");
     }
 
     /// @dev The 30-day clock only counts waiting without a successful purchase: a stock bought at least once a
@@ -1228,8 +1215,7 @@ contract CompanyTest is Test {
             feeds[1].set(0.9e8, block.timestamp);
             token.convert();
         }
-        uint256 nvdaWait = token.waitingSince(1);
-        assertTrue(nvdaWait == 0 || nvdaWait == block.timestamp, "NVDA kept converting: clock moved or reserve emptied");
+        assertEq(token.failingSince(1), 0, "NVDA kept converting: never failing");
         uint256 googlPending = token.pendingConvert(2);
         uint256 owedImd = token.owed(0);
         vm.warp(block.timestamp + 2 days);
@@ -1322,8 +1308,8 @@ contract CompanyTest is Test {
         );
     }
 
-    /// @dev Finding 1 (medium), IMD/USDG side: a dust position at a made-up price no longer throttles the stuck
-    ///      fallback; it pays a full 4 IMD round.
+    /// @dev dddb75ec finding 1, IMD/USDG side: a dust position at a made-up price doesn't throttle the fallback; once
+    ///      it applies, it pays full 4 IMD rounds.
     function test_final4_1a_dustImdPositionDoesNotThrottleFallback() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
@@ -1333,31 +1319,26 @@ contract CompanyTest is Test {
         int24 target = imdIs0 ? int24(-207_000) : int24(207_000);
         extRouter.swap(ik, SwapParams(imdIs0, -1, TickMath.getSqrtPriceAtTick(target)), settings, "");
         lp.modifyLiquidity(ik, ModifyLiquidityParams(target - 90, target + 90, 2.6e15, 0), "");
-        vm.warp(block.timestamp + 1 minutes);
-        token.convert(); // skipped: the pool's price is far from IMD's reference
-        assertEq(token.pendingConvert(1), 6e18);
-        vm.warp(block.timestamp + 31 days);
-        _refreshFeedsExcept(99);
-        token.convert();
+        _attemptEvery6Days(36, 0);
         assertEq(token.pendingConvert(1), 2e18, "full 4 IMD round paid as IMD, not 0.04");
     }
 
-    /// @dev Finding 1, stock side: a dust stock-pool position with a dead feed still pays full rounds.
+    /// @dev dddb75ec finding 1 / 4d037a63 finding 1, stock side: a stock pool that can only take dust is never
+    ///      bought as dust; it is skipped, and after 30 days of failing it pays full 4 IMD rounds.
     function test_final4_1b_dustStockPoolDoesNotThrottleFallback() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
         lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
-        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, 30e18, 0), "");
-        feeds[0].set(1e8, block.timestamp - 5 days); // NVDA feed stale
-        vm.warp(block.timestamp + 1 minutes);
-        _refreshFeedsExcept(0);
-        token.convert();
-        assertEq(token.pendingConvert(1), 6e18, "held while stale");
-        vm.warp(block.timestamp + 31 days);
-        _refreshFeedsExcept(0);
-        token.convert();
-        assertEq(token.pendingConvert(1), 2e18, "full 4 IMD round paid as IMD, not the 0.045 the pool allows");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, 70e18, 0), "");
+        assertGt(token.stockRoundLimit(1), 0.04e18);
+        assertLt(token.stockRoundLimit(1), 0.4e18);
+        uint256 nvdaHeld = stocks[0].balanceOf(address(token));
+        _attemptEvery6Days(24, 0);
+        assertEq(stocks[0].balanceOf(address(token)), nvdaHeld, "no dust purchases");
+        assertEq(token.pendingConvert(1), 6e18);
+        _attemptEvery6Days(12, 0);
+        assertEq(token.pendingConvert(1), 2e18, "full 4 IMD round paid as IMD after 30 days");
     }
 
     /// @dev Finding 2 (low): after a quiet month, a weekend-stale feed only arms the clock; nothing is paid as IMD.
@@ -1470,6 +1451,88 @@ contract CompanyTest is Test {
             assertEq(out[s], 0);
             assertEq(token.pendingConvert(s), 6e18);
         }
+    }
+
+    // ------------------------------------------------------------ IMD Swarm final check 5 4d037a63
+
+    /// @dev Replaces the NVDA pool's full-range liquidity with one position [-600, 600] of `liquidity`.
+    function _concentrateNvda(uint128 liquidity) internal returns (PoolKey memory nk, bool usdIs0) {
+        nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-600, 600, int256(uint256(liquidity)), 0), "");
+        usdIs0 = address(usdg) < address(stocks[0]);
+        usdg.approve(address(extRouter), type(uint256).max);
+        stocks[0].approve(address(extRouter), type(uint256).max);
+    }
+
+    /// @dev Finding 2 (low): one skip, then a quiet month, then a weekend-stale feed: the gap restarts the clock, so
+    ///      nothing is paid as IMD.
+    function test_final5_2_isolatedSkipThenQuietMonthDoesNotPay() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        feeds[0].set(0.95e8, block.timestamp); // NVDA 5% off its pool: skipped once
+        token.convert();
+        assertGt(token.failingSince(1), 0);
+        vm.warp(block.timestamp + 31 days); // nobody claims
+        _refreshFeedsExcept(0);
+        feeds[0].set(1e8, block.timestamp - 4 days - 1); // a long weekend
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18, "healthy NVDA waits");
+        assertEq(token.owed(0), owedImd, "nothing paid as IMD");
+        assertEq(token.failingSince(1), block.timestamp, "the clock restarted");
+    }
+
+    /// @dev Finding 3 (low): the price sits in a gap just outside the only position (zero liquidity at the tick) but
+    ///      a purchase would fill. It is not paid as IMD at once.
+    function test_final5_3_priceInGapIsNotPaidAsImdAtOnce() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        (PoolKey memory nk, bool usdIs0) = _concentrateNvda(1e24);
+        // sell NVDA past the position's edge
+        int24 edge = usdIs0 ? int24(660) : int24(-660);
+        extRouter.swap(nk, SwapParams(!usdIs0, -200_000e18, TickMath.getSqrtPriceAtTick(edge)), settings, "");
+        assertEq(pm.getLiquidity(nk.toId()), 0);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.owed(0), owedImd, "not paid as IMD at once");
+    }
+
+    /// @dev Finding 4 (low): near the edge of a thin position the round can't fully fill. That's a skip, not an
+    ///      immediate IMD payout.
+    function test_final5_4_partialFillNearEdgeIsASkip() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        (PoolKey memory nk, bool usdIs0) = _concentrateNvda(3_000e18);
+        int24 nearEdge = usdIs0 ? int24(-590) : int24(590);
+        extRouter.swap(nk, SwapParams(usdIs0, -1_000_000e18, TickMath.getSqrtPriceAtTick(nearEdge)), settings, "");
+        feeds[0].set(1.0608e8, block.timestamp); // Chainlink agrees with the pool
+        vm.warp(block.timestamp + 1 minutes);
+        _refreshFeedsExcept(0);
+        feeds[0].set(1.0608e8, block.timestamp);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.owed(0), owedImd, "not paid as IMD at once");
+        assertEq(token.pendingConvert(1), 6e18, "skipped, retried next round");
+        assertGt(token.failingSince(1), 0);
+    }
+
+    /// @dev Finding 5 (info): with a shallow IMD/USDG pool every possible purchase is dust, so the stock is skipped
+    ///      (never "bought as dust while failing") and the 30-day rule applies cleanly.
+    function test_final5_5_shallowImdPoolThresholdsAgree() public {
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -9_600e18, 0), ""); // 400e18 left
+        assertApproxEqRel(token.maxConvert(), 1e18, 0.01e18);
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256[6] memory out = token.convert();
+        assertEq(out[1], 0, "no dust purchase");
+        assertGt(token.failingSince(1), 0);
+        _attemptEvery6Days(36, 0);
+        assertLt(token.pendingConvert(1), 6e18, "paid as IMD after 30 days of failing");
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
