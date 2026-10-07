@@ -84,11 +84,21 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 5 | Info: a contract wallet's buy through another router credits tx.origin | Documented (README): only the buyer our routers report, or the signing wallet, gets buy activity; contract wallets should claim, sell or send, or buy through the site. |
 | 6 | Info: emptiness seen twice 30 days apart triggers the fallback | The empty clock restarts unless emptiness is re-confirmed within a day (`imdPoolLastSeenEmpty`). `test_final2_6_emptinessMustBeConfirmed`. |
 
-## 8. Known and accepted
+## 8. Resolved: IMD Swarm final check 3 986abba2 (on commit 3b09bc7)
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | Medium: in an empty IMD/USDG pool, a position at a made-up price clears the emptiness test and every round sells reserves into it for dust | The IMD → USDG hop is now checked against IMD's value via the IMD/ETH pool and Chainlink ETH/USD (`minUsdOut`, 10% tolerance after the pool fee); a round at a made-up price reverts `PriceOff` and is skipped. `test_final3_1_madeUpPricePositionGetsNothing` (sells 2.34 IMD without the check, as in the report; nothing with it). |
+| 2 | Low: the from-pool tag also excluded the tagged tokens' share of distributions later in the same transaction | `claim()` handles expiry first, before it flushes or converts, so the tag is exact at that point; tags also lapse after any distribution in the transaction (transient epoch), erring in the holder's favour for a send after a flush. `test_final3_2_buyAndClaimSameTxKeepsFreshRewards`. |
+| 3 | Low: `feedLastGood` was only written when a round ran | Removed with the per-feed dead logic (see 4). `test_final3_3_unusableReadAfterQuietMonthHolds`. |
+| 4 | Low: the 30-day empty-pool fallback needed a daily keeper | One rule replaces the separate dead-feed and empty-pool clocks: `waitingSince[stock]` starts when a stock's reserve fills from empty, moves to now on every successful purchase and clears when the reserve empties; a stock waiting more than `DEAD_AFTER` (30 days) without a purchase has its rounds paid as IMD, whatever the reason. No keeper needed. `test_final3_emptyImdPoolFallsBackToImdAfter30Days`, `test_stuckClock_onlyCountsWaitingWithoutAPurchase`. |
+
+## 9. Known and accepted
 
 - **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variants are closed: claim and recycle refuse to run mid-unlock, and tokens received from the PoolManager in the current transaction never count toward "recent" rewards.
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.
-- The IMD → USDG hop has no oracle (IMD has no Chainlink feed); it rests on the 20 IMD round ceiling and the IMD/USDG pool's depth. The stock hop is checked against Chainlink. Fixed routes and feeds can't be changed after deployment.
+- The IMD → USDG hop is checked against IMD's value via the IMD/ETH pool and Chainlink ETH/USD with a 10% tolerance (IMD has no feed of its own; its two pools can drift apart until arbitraged). Within that tolerance, sandwiches stay bounded by the 20 IMD round ceiling. The stock hop is checked against Chainlink (3%). Fixed routes and feeds can't be changed after deployment.
+- After a large buy through the ETH route, IMD's two pools can be several percent apart until arbitrage realigns them; stock rounds that would exceed the tolerance are skipped and wait.
 - Within the 3% oracle tolerance (after the pool fee), a sandwich of a thin stock pool can skim at most about 3% of that stock's round.
 - Anyone can open a separate, hookless $COMPANY pool; swaps there pay no fee.
 - Anyone able to make a purchase fail on purpose (e.g. an LP pulling a stock pool's liquidity in the same transaction) can turn that round's stock share into IMD; holders still receive its full value in IMD.

@@ -136,14 +136,26 @@ contract CompanyToken is IUnlockCallback {
     uint256 public constant ORACLE_TOLERANCE_BPS = 300;
     /// @notice A feed older than this (equity feeds pause over weekends and holidays) holds that stock's rounds.
     uint256 public constant MAX_ORACLE_AGE = 4 days;
-    /// @notice A feed this old (or unusable), or an IMD/USDG pool empty this long, is treated as gone for good: that
-    ///         stock's rounds are then paid to holders as IMD instead of waiting forever (audit 363ab052, finding 3).
+    /// @notice The IMD -> USDG hop must receive at least this close to what IMD is worth via the IMD/ETH pool and
+    ///         Chainlink ETH/USD and USDG/USD (after the IMD/USDG pool's own fee); otherwise the round is skipped
+    ///         (audit 986abba2, finding 1). IMD has no feed of its own; its deepest pool is IMD/ETH. 10% leaves room
+    ///         for IMD's two pools drifting apart until arbitraged (a 2 ETH buy through the ETH route moved them
+    ///         about 5.6% apart on a mainnet fork) while stopping a round at a made-up price. Small sandwiches stay
+    ///         bounded by the 20 IMD round ceiling.
+    uint256 public constant IMD_TOLERANCE_BPS = 1_000;
+    /// @notice A stock whose reserve has waited this long without a single successful purchase (dead or unusable
+    ///         feed, empty pool, prices stuck away from Chainlink, anything) has its rounds paid to holders as IMD
+    ///         instead of waiting forever (audit 363ab052 finding 3; 986abba2 findings 3 and 4). No keeper needed.
     uint256 public constant DEAD_AFTER = 30 days;
 
     uint256 internal constant MAGNITUDE = 2 ** 128;
     /// @dev Transient-storage seed: $COMPANY each address received from the PoolManager in this transaction (borrowed
     ///      or just bought), which never counts toward its "recent" rewards (audit 882666b4, findings 1 and 2).
     bytes32 internal constant FROM_POOL_SEED = keccak256("Company.receivedFromPool");
+    bytes32 internal constant FROM_POOL_EPOCH_SEED = keccak256("Company.receivedFromPoolEpoch");
+    /// @dev Transient counter of distributions in this transaction: a from-pool tag only counts while no distribution
+    ///      has run since it was set, because after one the tagged tokens have earned (audit 986abba2, finding 2).
+    bytes32 internal constant EPOCH_SLOT = keccak256("Company.distributionEpoch");
     uint256 internal constant Q96 = 2 ** 96;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -170,8 +182,11 @@ contract CompanyToken is IUnlockCallback {
     Pool[ASSETS] public stockPools;
     /// @notice Chainlink USD price feed of each stock (index 0 unused), fixed at deployment.
     address[ASSETS] public priceFeeds;
-    /// @notice Chainlink USDG/USD feed.
+    /// @notice Chainlink USDG/USD and ETH/USD feeds.
     address public immutable usdFeed;
+    address public immutable ethUsdFeed;
+    /// @notice IMD/ETH pool (no hooks) used with ETH/USD to price IMD for the first hop's check.
+    Pool public imdEthPool;
     /// @dev 10^decimals of USDG and of each stock, read at deployment (USDG 6, stock tokens 18).
     uint256 internal immutable _usdUnit;
     uint256[ASSETS] internal _unit;
@@ -201,14 +216,9 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Last successful conversion of each stock (deployment time before the first).
     uint256[ASSETS] public lastConvert;
 
-    /// @notice When the IMD/USDG pool was first seen without usable liquidity at its price (0 while it has some),
-    ///         and when that was last confirmed. The clock restarts if it isn't re-confirmed within a day, so a pool
-    ///         usable in between is never declared dead (audit 882666b4, finding 6).
-    uint256 public imdPoolEmptySince;
-    uint256 public imdPoolLastSeenEmpty;
-    /// @notice Last time each price feed gave a usable answer: an unusable feed counts as dead only after
-    ///         DEAD_AFTER without one (audit 882666b4, finding 4).
-    mapping(address feed => uint256) public feedLastGood;
+    /// @notice Since when each stock's reserve has been waiting without a successful purchase (0 while empty). Set
+    ///         when the reserve fills from empty, moved to now by every successful purchase, cleared when it empties.
+    uint256[ASSETS] public waitingSince;
 
     /// @notice Last activity of each holder (unix seconds), see the contract notice.
     mapping(address => uint256) public lastActive;
@@ -244,14 +254,21 @@ contract CompanyToken is IUnlockCallback {
     /// @param pools_ the USDG/stock v4 pool (no hooks) of each stock, same order
     /// @dev Every pool must already exist. The whole supply goes to the hook, whose one-time `openPool` locks it in
     ///      the pool.
+    /// @notice Chainlink feeds (8 decimals) and the IMD/ETH pool used to check every purchase.
+    struct Oracles {
+        address usdFeed;
+        address ethUsdFeed;
+        Pool imdEthPool;
+        address[5] stockFeeds;
+    }
+
     constructor(
         address hook_,
         address usd_,
         Pool memory imdUsdPool_,
         address[5] memory stocks,
         Pool[5] memory pools_,
-        address usdFeed_,
-        address[5] memory feeds_
+        Oracles memory oracles_
     ) {
         ICompanyHook h = ICompanyHook(hook_);
         hook = hook_;
@@ -260,14 +277,17 @@ contract CompanyToken is IUnlockCallback {
         poolManager = h.poolManager();
         quote = h.IMD();
         usd = usd_;
-        _checkFeed(usdFeed_);
-        usdFeed = usdFeed_;
-        feedLastGood[usdFeed_] = block.timestamp;
+        _checkFeed(oracles_.usdFeed);
+        _checkFeed(oracles_.ethUsdFeed);
+        usdFeed = oracles_.usdFeed;
+        ethUsdFeed = oracles_.ethUsdFeed;
         _usdUnit = 10 ** IPriceFeed(usd_).decimals();
 
         assets[0] = quote;
         imdUsdPool = imdUsdPool_;
         _checkPool(quote, usd_, imdUsdPool_);
+        imdEthPool = oracles_.imdEthPool;
+        _checkPool(address(0), quote, oracles_.imdEthPool);
         for (uint256 i; i < 5; i++) {
             address s = stocks[i];
             if (s == address(0) || s == quote || s == usd_ || s == address(this)) revert BadAsset();
@@ -278,9 +298,8 @@ contract CompanyToken is IUnlockCallback {
             stockPools[i + 1] = pools_[i];
             lastConvert[i + 1] = block.timestamp;
             _checkPool(usd_, s, pools_[i]);
-            _checkFeed(feeds_[i]);
-            priceFeeds[i + 1] = feeds_[i];
-            feedLastGood[feeds_[i]] = block.timestamp;
+            _checkFeed(oracles_.stockFeeds[i]);
+            priceFeeds[i + 1] = oracles_.stockFeeds[i];
             _unit[i + 1] = 10 ** IPriceFeed(s).decimals();
         }
 
@@ -468,6 +487,7 @@ contract CompanyToken is IUnlockCallback {
         amount = bal - tracked;
         uint256 perStock = (amount * STOCK_SHARE_BPS) / BPS;
         for (uint256 a = 1; a < ASSETS; a++) {
+            if (perStock != 0 && pendingConvert[a] == 0) waitingSince[a] = block.timestamp;
             pendingConvert[a] += perStock;
         }
         _credit(0, amount - perStock * (ASSETS - 1));
@@ -488,6 +508,10 @@ contract CompanyToken is IUnlockCallback {
 
     function _credit(uint256 asset, uint256 amount) internal {
         if (amount == 0) return;
+        bytes32 epochSlot = EPOCH_SLOT;
+        assembly ("memory-safe") {
+            tstore(epochSlot, add(tload(epochSlot), 1))
+        }
         uint256 eligible = eligibleSupply;
         uint256 mag = magnifiedRewardPerShare[asset] + (amount * MAGNITUDE) / eligible;
         magnifiedRewardPerShare[asset] = mag;
@@ -528,14 +552,16 @@ contract CompanyToken is IUnlockCallback {
         // Inside someone else's PoolManager unlock the pool's tokens can be borrowed to inflate the caller's weight
         // and dodge expiry (audit 363ab052, finding 2). Our routers never claim mid-unlock.
         if (IPoolManager(poolManager).isUnlocked()) revert Reentrancy();
-        ICompanyHook(hook).flush(address(this));
-        _convertAll();
         if (!isSystemAccount(msg.sender)) {
             // Expiry is strict: rewards that expired before this claim go to the protocol, not to the claimer.
-            // Computed before the claim resets the timer.
+            // Computed first, before this claim distributes anything, so tokens received from the pool earlier in
+            // this transaction are still left out exactly; what the claim then credits lands on an active wallet
+            // (audit 986abba2, finding 2).
             _recycle(msg.sender);
             lastActive[msg.sender] = block.timestamp;
         }
+        ICompanyHook(hook).flush(address(this));
+        _convertAll();
         for (uint256 a; a < ASSETS; a++) {
             uint256 amount = withdrawableRewardOf(msg.sender, a);
             if (amount == 0) continue;
@@ -591,17 +617,24 @@ contract CompanyToken is IUnlockCallback {
         }
     }
 
+    /// @dev $COMPANY `account` received from the PoolManager in this transaction since the last distribution.
     function _fromPool(address account) internal view returns (uint256 v) {
         bytes32 slot = keccak256(abi.encode(FROM_POOL_SEED, account));
+        bytes32 epochOf = keccak256(abi.encode(FROM_POOL_EPOCH_SEED, account));
+        bytes32 epochSlot = EPOCH_SLOT;
         assembly ("memory-safe") {
-            v := tload(slot)
+            // tags are stored with epoch + 1, so 0 means "never set in this transaction"
+            if eq(tload(epochOf), add(tload(epochSlot), 1)) { v := tload(slot) }
         }
     }
 
     function _setFromPool(address account, uint256 v) internal {
         bytes32 slot = keccak256(abi.encode(FROM_POOL_SEED, account));
+        bytes32 epochOf = keccak256(abi.encode(FROM_POOL_EPOCH_SEED, account));
+        bytes32 epochSlot = EPOCH_SLOT;
         assembly ("memory-safe") {
             tstore(slot, v)
+            tstore(epochOf, add(tload(epochSlot), 1))
         }
     }
 
@@ -672,29 +705,18 @@ contract CompanyToken is IUnlockCallback {
         // Inside someone else's unlock the swaps can't run (and the pool could be mid-manipulation): skip.
         if (IPoolManager(poolManager).isUnlocked()) return stockOut;
         uint256 roundCap = maxConvert();
-        uint256 cap = roundCap / (ASSETS - 1);
-        // No usable IMD/USDG liquidity at its price (below 1% of a full round, so a dust position doesn't count:
-        // audit 882666b4, finding 3): nothing can be bought. Wait, but not forever (audit 363ab052, finding 3): after
-        // DEAD_AFTER of confirmed emptiness every stock's rounds are paid to holders as IMD.
-        bool imdPoolDead;
-        if (roundCap < MAX_ROUND_IMD / 100) {
-            if (imdPoolEmptySince == 0 || block.timestamp > imdPoolLastSeenEmpty + 1 days) {
-                imdPoolEmptySince = block.timestamp;
-            }
-            imdPoolLastSeenEmpty = block.timestamp;
-            if (block.timestamp <= imdPoolEmptySince + DEAD_AFTER) return stockOut;
-            imdPoolDead = true;
-            cap = MAX_ROUND_IMD / (ASSETS - 1);
-        } else if (imdPoolEmptySince != 0) {
-            imdPoolEmptySince = 0;
-        }
+        // No usable IMD/USDG liquidity at its price (below 1% of a full round, so a dust position doesn't count):
+        // nothing can be bought; a stock waiting DEAD_AFTER is then paid as IMD at the full round size.
+        bool imdPoolEmpty = roundCap < MAX_ROUND_IMD / 100;
+        uint256 cap = (imdPoolEmpty ? MAX_ROUND_IMD : roundCap) / (ASSETS - 1);
         for (uint256 a = 1; a < ASSETS; a++) {
             if (block.timestamp < lastConvert[a] + CONVERT_INTERVAL) continue;
             uint256 imdIn = pendingConvert[a];
             if (imdIn > cap) imdIn = cap;
             if (imdIn == 0) continue;
-            if (imdPoolDead) {
-                _fallBackToImd(a, imdIn);
+            bool stuck = waitingSince[a] != 0 && block.timestamp > waitingSince[a] + DEAD_AFTER;
+            if (imdPoolEmpty) {
+                if (stuck) _fallBackToImd(a, imdIn);
                 continue;
             }
             uint256 poolLimit = stockRoundLimit(a);
@@ -706,22 +728,24 @@ contract CompanyToken is IUnlockCallback {
                 continue;
             }
             if (imdIn > poolLimit) imdIn = poolLimit;
-            // A stale price feed (weekend, holiday) holds the stock until it updates; a feed gone for DEAD_AFTER is
-            // treated like a stock that can't be bought.
+            // A stale or unusable price feed (weekend, holiday, incident) holds the stock; after DEAD_AFTER of waiting
+            // without a purchase it is paid as IMD.
             if (!_feedsFresh(a)) {
-                if (_feedsDead(a)) _fallBackToImd(a, imdIn);
+                if (stuck) _fallBackToImd(a, imdIn);
                 continue;
             }
-            feedLastGood[usdFeed] = block.timestamp;
-            feedLastGood[priceFeeds[a]] = block.timestamp;
             // Too little gas for a full CONVERT_GAS: skip the stock, never fall back, so a low-gas caller can't turn
             // stock into IMD and a claim never fails on it (audit f1d5def3, finding 3).
             if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) continue;
             try this.convertStock{gas: CONVERT_GAS}(a, imdIn) returns (uint256 out) {
                 stockOut[a] = out;
             } catch (bytes memory reason) {
-                // Price away from Chainlink's: someone may be moving the pool. Skip, try again next round.
-                if (reason.length >= 4 && bytes4(reason) == PriceOff.selector) continue;
+                // A price away from the references (Chainlink, IMD/ETH): someone may be moving a pool. Skip and try
+                // again next round; only a stock stuck for DEAD_AFTER is paid as IMD.
+                if (reason.length >= 4 && bytes4(reason) == PriceOff.selector) {
+                    if (stuck) _fallBackToImd(a, imdIn);
+                    continue;
+                }
                 _fallBackToImd(a, imdIn);
             }
         }
@@ -734,6 +758,7 @@ contract CompanyToken is IUnlockCallback {
         if (eligibleSupply < MIN_ELIGIBLE_SUPPLY) return;
         pendingConvert[asset] -= imdIn;
         lastConvert[asset] = block.timestamp;
+        if (pendingConvert[asset] == 0) waitingSince[asset] = 0;
         _credit(0, imdIn);
         emit ConversionFailed(asset, imdIn);
     }
@@ -750,6 +775,7 @@ contract CompanyToken is IUnlockCallback {
         uint256 usdOut = abi.decode(IPoolManager(poolManager).unlock(abi.encode(asset, imdIn)), (uint256));
         stockOut = stock.balanceOf(address(this)) - before;
         if (stockOut == 0) revert Slippage();
+        waitingSince[asset] = pendingConvert[asset] == 0 ? 0 : block.timestamp;
         emit Converted(asset, imdIn, usdOut, stockOut);
         distributeStock(asset);
     }
@@ -760,6 +786,7 @@ contract CompanyToken is IUnlockCallback {
         IPoolManager pm = IPoolManager(poolManager);
 
         uint256 usdOut = _swapExactIn(_key(quote, usd, imdUsdPool), quote, imdIn);
+        if (usdOut < minUsdOut(imdIn)) revert PriceOff();
         uint256 stockOut = _swapExactIn(_key(usd, assets[asset], stockPools[asset]), usd, usdOut);
         if (stockOut < minStockOut(asset, usdOut)) revert PriceOff();
 
@@ -846,13 +873,25 @@ contract CompanyToken is IUnlockCallback {
 
     function _feedsFresh(uint256 asset) internal view returns (bool) {
         (bool okU,) = _readFeed(usdFeed);
+        (bool okE,) = _readFeed(ethUsdFeed);
         (bool okS,) = _readFeed(priceFeeds[asset]);
-        return okU && okS;
+        return okU && okE && okS;
     }
 
-    /// @dev True when either feed of `asset` has been unusable or not updated for DEAD_AFTER.
-    function _feedsDead(uint256 asset) internal view returns (bool) {
-        return _feedAge(usdFeed) > DEAD_AFTER || _feedAge(priceFeeds[asset]) > DEAD_AFTER;
+    /// @notice Least USDG (its own decimals) the IMD -> USDG hop must give for `imdIn` IMD: IMD's value via the
+    ///         IMD/ETH pool and Chainlink ETH/USD and USDG/USD, less the IMD/USDG pool's fee and IMD_TOLERANCE_BPS.
+    ///         Reverts PriceOff when a feed or the IMD/ETH pool is unusable.
+    function minUsdOut(uint256 imdIn) public view returns (uint256) {
+        (bool okE, uint256 ethUsd) = _readFeed(ethUsdFeed);
+        (bool okU, uint256 usdgUsd) = _readFeed(usdFeed);
+        if (!okE || !okU) revert PriceOff();
+        (uint160 sp,,,) = IPoolManager(poolManager).getSlot0(_key(address(0), quote, imdEthPool).toId());
+        if (sp == 0) revert PriceOff();
+        // ETH (address zero) is currency0: price = IMD per ETH = (sp / 2^96)^2, so ETH for imdIn = imdIn / price
+        uint256 ethAmount = FullMath.mulDiv(FullMath.mulDiv(imdIn, Q96, sp), Q96, sp);
+        uint256 fair = FullMath.mulDiv(ethAmount, ethUsd * _usdUnit, 1e18 * usdgUsd);
+        fair = (fair * (1_000_000 - imdUsdPool.fee)) / 1_000_000;
+        return (fair * (BPS - IMD_TOLERANCE_BPS)) / BPS;
     }
 
     /// @dev Latest answer if it is positive and no older than MAX_ORACLE_AGE; never reverts.
@@ -862,22 +901,6 @@ contract CompanyToken is IUnlockCallback {
         (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
         if (answer <= 0 || updatedAt == 0 || updatedAt + MAX_ORACLE_AGE < block.timestamp) return (false, 0);
         return (true, uint256(answer));
-    }
-
-    /// @dev Seconds since the feed's last update. For a feed that is unusable right now (reverts, no data,
-    ///      answer <= 0), seconds since it last gave a usable answer here (`feedLastGood`).
-    function _feedAge(address feed) internal view returns (uint256) {
-        (bool success, bytes memory ret) = feed.staticcall(abi.encodeWithSelector(IPriceFeed.latestRoundData.selector));
-        if (!success || ret.length < 160) return _sinceGood(feed);
-        (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
-        if (answer <= 0 || updatedAt == 0) return _sinceGood(feed);
-        if (updatedAt > block.timestamp) return 0;
-        return block.timestamp - updatedAt;
-    }
-
-    function _sinceGood(address feed) internal view returns (uint256) {
-        uint256 good = feedLastGood[feed];
-        return good == 0 ? type(uint256).max : block.timestamp - good;
     }
 
     function _checkFeed(address feed) internal view {

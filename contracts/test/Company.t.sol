@@ -24,6 +24,26 @@ import {DeployLib} from "../script/DeployLib.sol";
 import {MockERC20, MockStock, MockFeed} from "./Mocks.sol";
 
 /// @notice Borrows the pool's $COMPANY inside an unlock, then tries to distribute, convert or claim with it.
+/// @notice Audit 986abba2 finding 2: a contract wallet that buys through a plain router and claims in one call.
+contract BatchWallet {
+    function buyAndClaim(PoolSwapTest r, PoolKey memory k, bool zeroForOne, int256 amount, CompanyToken t)
+        external
+        returns (uint256[6] memory paid)
+    {
+        r.swap(
+            k,
+            SwapParams(zeroForOne, amount, zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
+            ""
+        );
+        if (address(t) != address(0)) paid = t.claim();
+    }
+
+    function approve(address token, address spender) external {
+        MockERC20(token).approve(spender, type(uint256).max);
+    }
+}
+
 /// @notice Audit 882666b4 findings 1 and 2: borrows the pool's $COMPANY into `victim` inside an unlock, then has
 ///         the victim "send" (mode 1) or makes a dust buy for it (mode 2, tx.origin = victim), then repays.
 contract FlashReviver is IUnlockCallback {
@@ -142,6 +162,7 @@ contract CompanyTest is Test {
     MockERC20 usdg;
     MockStock[5] stocks;
     MockFeed usdFeed;
+    MockFeed ethFeed;
     MockFeed[5] feeds;
     CompanyHook hook;
     CompanyToken token;
@@ -164,6 +185,7 @@ contract CompanyTest is Test {
         string[5] memory names = ["NVDA", "GOOGL", "AAPL", "GME", "MSTR"];
         // all test pools trade 1:1 with USDG, so every feed reads $1
         usdFeed = new MockFeed(1e8);
+        ethFeed = new MockFeed(1e8); // the test IMD/ETH pool is 1:1, so ETH = IMD = $1
         for (uint256 i; i < 5; i++) {
             stocks[i] = new MockStock(names[i]);
             feeds[i] = new MockFeed(1e8);
@@ -221,9 +243,8 @@ contract CompanyTest is Test {
         router = CompanyRouter(payable(hook.router()));
         ethRouter = CompanyEthRouter(payable(hook.ethRouter()));
 
-        token = new CompanyToken(
-            address(hook), address(usdg), CompanyToken.Pool(9000, 90), stockAddrs, pools, address(usdFeed), _feedAddrs()
-        );
+        token =
+            new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), stockAddrs, pools, _oracles());
         vm.prank(owner);
         hook.openPool(address(token));
 
@@ -249,6 +270,13 @@ contract CompanyTest is Test {
         for (uint256 i; i < 5; i++) {
             f[i] = address(feeds[i]);
         }
+    }
+
+    function _oracles() internal view returns (CompanyToken.Oracles memory o) {
+        o.usdFeed = address(usdFeed);
+        o.ethUsdFeed = address(ethFeed);
+        o.imdEthPool = CompanyToken.Pool(10_000, 100);
+        o.stockFeeds = _feedAddrs();
     }
 
     function _key(address a, address b, uint24 fee, int24 ts) internal pure returns (PoolKey memory) {
@@ -308,20 +336,14 @@ contract CompanyTest is Test {
             pools[i] = CompanyToken.Pool(3000, 60);
         }
         vm.expectRevert(CompanyToken.BadPool.selector);
-        new CompanyToken(
-            address(hook), address(usdg), CompanyToken.Pool(3000, 60), s, pools, address(usdFeed), _feedAddrs()
-        );
+        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(3000, 60), s, pools, _oracles());
         pools[2] = CompanyToken.Pool(500, 10);
         vm.expectRevert(CompanyToken.BadPool.selector);
-        new CompanyToken(
-            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
-        );
+        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, _oracles());
         pools[2] = CompanyToken.Pool(3000, 60);
         s[4] = s[0];
         vm.expectRevert(CompanyToken.BadAsset.selector);
-        new CompanyToken(
-            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
-        );
+        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, _oracles());
     }
 
     function test_hook_blocksOutsidePoolsAndLiquidity() public {
@@ -680,6 +702,7 @@ contract CompanyTest is Test {
             feeds[i].set(1e8, block.timestamp);
         }
         usdFeed.set(1e8, block.timestamp);
+        ethFeed.set(1e8, block.timestamp);
         uint256[6] memory out = token.convert();
         assertEq(out[1], 0);
         assertEq(token.pendingConvert(1), 6e18, "waits for a fresh price");
@@ -1063,7 +1086,8 @@ contract CompanyTest is Test {
         assertEq(token.owed(0), owedImd + 4e18);
     }
 
-    /// @dev Finding 3, second input: an IMD/USDG pool with no liquidity for 30 days.
+    /// @dev Finding 3 of 363ab052 (and 986abba2 finding 4): an IMD/USDG pool with no liquidity. Rounds wait, then
+    ///      after 30 days without a purchase they are paid as IMD, with no daily keeper needed.
     function test_final3_emptyImdPoolFallsBackToImdAfter30Days() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
@@ -1072,15 +1096,8 @@ contract CompanyTest is Test {
         assertEq(token.maxConvert(), 0);
         vm.warp(block.timestamp + 1 minutes);
         token.convert();
-        assertEq(token.imdPoolEmptySince(), block.timestamp);
         assertEq(token.pendingConvert(1), 6e18, "waits at first");
-        // still empty when checked each day (any claim checks it)
-        for (uint256 d; d < 30; d++) {
-            vm.warp(block.timestamp + 1 days);
-            token.convert();
-            assertEq(token.pendingConvert(1), 6e18, "waits until 30 days of confirmed emptiness");
-        }
-        vm.warp(block.timestamp + 1 days);
+        vm.warp(block.timestamp + 30 days); // nobody calls in between
         _refreshFeedsExcept(99);
         uint256 owedImd = token.owed(0);
         token.convert();
@@ -1115,6 +1132,7 @@ contract CompanyTest is Test {
 
     function _refreshFeedsExcept(uint256 skip) internal {
         usdFeed.set(1e8, block.timestamp);
+        ethFeed.set(1e8, block.timestamp);
         for (uint256 i; i < 5; i++) {
             if (i != skip) feeds[i].set(1e8, block.timestamp);
         }
@@ -1154,7 +1172,7 @@ contract CompanyTest is Test {
         assertEq(token.recycledHeld(0), expired, "but only after forfeiting what had expired");
     }
 
-    /// @dev Finding 3 (medium): a dust IMD/USDG position no longer stops the 30-day fallback.
+    /// @dev 882666b4 finding 3: a dust IMD/USDG position still counts as empty.
     function test_final2_3_dustImdPoolStillCountsAsEmpty() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
@@ -1162,13 +1180,10 @@ contract CompanyTest is Test {
         lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
         lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, 10_000, 0), "");
         assertGt(token.maxConvert(), 0);
-        for (uint256 d; d < 32; d++) {
-            vm.warp(block.timestamp + 1 days);
-            _refreshFeedsExcept(99);
-            token.convert();
-        }
-        assertGt(token.imdPoolEmptySince(), 0, "dust counted as empty");
-        assertLt(token.pendingConvert(1), 6e18, "rounds paid as IMD after 30 days");
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(99);
+        token.convert();
+        assertEq(token.pendingConvert(1), 2e18, "rounds paid as IMD after 30 days");
     }
 
     /// @dev Finding 4 (low): a feed that answers 0 (or reverts) for a while holds the stock; it isn't dead at once.
@@ -1191,22 +1206,103 @@ contract CompanyTest is Test {
         assertLt(token.pendingConvert(1), pending, "dead after 30 days without a usable answer");
     }
 
-    /// @dev Finding 6 (info): emptiness seen twice 30 days apart, with liquidity in between, doesn't count.
-    function test_final2_6_emptinessMustBeConfirmed() public {
+    /// @dev The 30-day clock only counts waiting without a successful purchase: a stock bought at least once a
+    ///      month never falls back, while one whose price stays off Chainlink falls back after 30 days.
+    function test_stuckClock_onlyCountsWaitingWithoutAPurchase() public {
+        // a deeper IMD/USDG pool, so a month of rounds doesn't move its price off the IMD/ETH reference
+        lp.modifyLiquidity(
+            _key(address(imd), address(usdg), 9000, 90), ModifyLiquidityParams(-FULL_90, FULL_90, 200_000e18, 0), ""
+        );
+        _buy(alice, 1_000e18);
+        for (uint256 i; i < 10; i++) {
+            _buy(bob, 3_333e18); // large reserves: many rounds
+        }
+        feeds[1].set(0.9e8, block.timestamp); // GOOGL 10% off: every GOOGL round is skipped
+        for (uint256 d; d < 29; d++) {
+            vm.warp(block.timestamp + 1 days);
+            _refreshFeedsExcept(1);
+            feeds[1].set(0.9e8, block.timestamp);
+            token.convert();
+        }
+        uint256 nvdaWait = token.waitingSince(1);
+        assertTrue(nvdaWait == 0 || nvdaWait == block.timestamp, "NVDA kept converting: clock moved or reserve emptied");
+        uint256 googlPending = token.pendingConvert(2);
+        uint256 owedImd = token.owed(0);
+        vm.warp(block.timestamp + 2 days);
+        _refreshFeedsExcept(1);
+        feeds[1].set(0.9e8, block.timestamp);
+        token.convert();
+        assertEq(token.pendingConvert(2), googlPending - 4e18, "GOOGL, stuck 30 days, paid one round as IMD");
+        assertGe(token.owed(0), owedImd + 4e18);
+    }
+
+    // ------------------------------------------------------------ IMD Swarm final check 3 986abba2
+
+    /// @dev Finding 1 (medium): an empty IMD/USDG pool, a position at a made-up price. The first-hop check skips the
+    ///      round instead of selling the reserves into it for dust.
+    function test_final3_1_madeUpPricePositionGetsNothing() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        bool imdIs0 = address(imd) < address(usdg);
+        address attacker = makeAddr("attacker");
+        imd.mint(attacker, 1_000e18);
+        usdg.mint(attacker, 1_000e18);
+        vm.startPrank(attacker);
+        imd.approve(address(extRouter), type(uint256).max);
+        usdg.approve(address(extRouter), type(uint256).max);
+        imd.approve(address(lp), type(uint256).max);
+        usdg.approve(address(lp), type(uint256).max);
+        // move the empty pool's price for free to "IMD worth ~1e-9 USDG", then post a position there
+        int24 target = imdIs0 ? int24(-207_000) : int24(207_000);
+        extRouter.swap(ik, SwapParams(imdIs0, -1, TickMath.getSqrtPriceAtTick(target)), settings, "");
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(target - 900, target + 900, 3e16, 0), "");
+        vm.stopPrank();
+        assertGt(token.maxConvert(), 0.2e18, "the position makes the pool look non-empty");
         vm.warp(block.timestamp + 1 minutes);
-        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        uint256 imdHeld = imd.balanceOf(address(token));
         token.convert();
-        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, 10_000e18, 0), "");
-        vm.warp(block.timestamp + 31 days);
+        assertEq(imd.balanceOf(address(token)), imdHeld, "no IMD sold at the made-up price");
+        assertEq(token.pendingConvert(1), 6e18);
+    }
+
+    /// @dev Finding 2 (low): a contract wallet that buys through a plain router and claims in the same transaction
+    ///      keeps its share of what that claim distributes; only what expired before is recycled.
+    function test_final3_2_buyAndClaimSameTxKeepsFreshRewards() public {
+        BatchWallet w = new BatchWallet();
+        imd.mint(address(w), 10_000e18);
+        w.approve(address(imd), address(extRouter));
+        PoolKey memory k = hook.poolKey(address(token));
+        bool imdIs0 = Currency.unwrap(k.currency0) == address(imd);
+        address signer = makeAddr("signer");
+        vm.prank(signer, signer);
+        w.buyAndClaim(extRouter, k, imdIs0, -20e18, CompanyToken(address(0))); // first buy: W active, earns
+        _buy(bob, 20e18);
+        vm.warp(block.timestamp + 8 days);
+        _buy(bob, 10e18);
+        uint256 expired = token.expiredRewardsOf(address(w), 0);
+        assertGt(expired, 0);
+        uint256 recycledBefore = token.totalRecycled(0);
+        vm.prank(signer, signer);
+        w.buyAndClaim(extRouter, k, imdIs0, -1_000e18, token);
+        assertApproxEqAbs(token.totalRecycled(0) - recycledBefore, expired, 1e12, "only what had expired before");
+    }
+
+    /// @dev Findings 3 and 4 (low): after a long quiet period, one unusable feed read holds the stock (it is not
+    ///      dead at once), and an abandoned pool needs no daily keeper (see test_final3_emptyImdPool...).
+    function test_final3_3_unusableReadAfterQuietMonthHolds() public {
+        vm.warp(block.timestamp + 31 days); // nobody trades
         _refreshFeedsExcept(99);
-        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        _refreshFeedsExcept(0);
+        feeds[0].set(0, block.timestamp); // one unusable NVDA read
         uint256 owedImd = token.owed(0);
         token.convert();
-        assertEq(token.owed(0), owedImd, "no fallback: the clock restarted");
-        assertEq(token.imdPoolEmptySince(), block.timestamp);
+        assertEq(token.pendingConvert(1), 6e18, "held, not paid as IMD");
+        assertEq(token.owed(0), owedImd);
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
@@ -1272,9 +1368,8 @@ contract CompanyTest is Test {
             s[i] = address(stocks[i]);
             pools[i] = CompanyToken.Pool(3000, 60);
         }
-        CompanyToken t2 = new CompanyToken(
-            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
-        );
+        CompanyToken t2 =
+            new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, _oracles());
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("OwnershipTransferred(address,address)");
         uint256 seen;

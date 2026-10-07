@@ -25,6 +25,7 @@ library CompanyConfig {
     /// @dev Chainlink feeds on Robinhood Chain (8 decimals), from Chainlink's directory and checked on-chain
     ///      (description and latest answer) on 2026-10-07.
     address internal constant USDG_USD = 0x61B7e5650328764B076A108EFF5fa7282a1B9aD2;
+    address internal constant ETH_USD = 0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9;
     address internal constant NVDA_USD = 0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15;
     address internal constant GOOGL_USD = 0xF6f373a037c30F0e5010d854385cA89185AE638b;
     address internal constant AAPL_USD = 0x6B22A786bAa607d76728168703a39Ea9C99f2cD0;
@@ -69,7 +70,12 @@ library CompanyConfig {
             CompanyToken.Pool(10_000, 200),
             CompanyToken.Pool(2500, 25)
         ];
-        address[5] memory feeds = [NVDA_USD, GOOGL_USD, AAPL_USD, GME_USD, MSTR_USD];
-        return new CompanyToken(hook, USDG, CompanyToken.Pool(9000, 90), stocks, pools, USDG_USD, feeds);
+        CompanyToken.Oracles memory oracles = CompanyToken.Oracles({
+            usdFeed: USDG_USD,
+            ethUsdFeed: ETH_USD,
+            imdEthPool: CompanyToken.Pool(10_000, 100), // IMD/ETH 0xd2fc01ee…8f02, fee 1%, spacing 100
+            stockFeeds: [NVDA_USD, GOOGL_USD, AAPL_USD, GME_USD, MSTR_USD]
+        });
+        return new CompanyToken(hook, USDG, CompanyToken.Pool(9000, 90), stocks, pools, oracles);
     }
 }

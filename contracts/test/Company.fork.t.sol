@@ -62,9 +62,12 @@ contract CompanyForkTest is Test {
         if (!forked) return;
         // buy with ETH through the real IMD/ETH pool, so no IMD balance has to be faked
         vm.prank(alice);
-        ethRouter.buyWithEth{value: 1 ether}(address(token), 0, block.timestamp);
+        ethRouter.buyWithEth{value: 0.2 ether}(address(token), 0, block.timestamp);
         vm.prank(bob);
-        ethRouter.buyWithEth{value: 20 ether}(address(token), 0, block.timestamp);
+        ethRouter.buyWithEth{value: 2 ether}(address(token), 0, block.timestamp);
+        // How far the ETH-route buys moved IMD/ETH away from IMD/USDG (no arbitrage runs in a fork).
+        uint256 refUsd = token.minUsdOut(1e18); // USDG for 1 IMD, after fee and 5% tolerance
+        console.log("first-hop minimum USDG per IMD (6 dp):", refUsd);
         assertGt(token.owed(0), 0, "IMD credited");
         console.log("IMD credited to holders  :", token.owed(0));
         console.log("IMD reserved per stock   :", token.pendingConvert(1));
