@@ -135,6 +135,9 @@ contract CompanyToken is IUnlockCallback {
     uint256 public constant ORACLE_TOLERANCE_BPS = 300;
     /// @notice A feed older than this (equity feeds pause over weekends and holidays) holds that stock's rounds.
     uint256 public constant MAX_ORACLE_AGE = 4 days;
+    /// @notice A feed this old (or unusable), or an IMD/USDG pool empty this long, is treated as gone for good: that
+    ///         stock's rounds are then paid to holders as IMD instead of waiting forever (audit 363ab052, finding 3).
+    uint256 public constant DEAD_AFTER = 30 days;
 
     uint256 internal constant MAGNITUDE = 2 ** 128;
     uint256 internal constant Q96 = 2 ** 96;
@@ -193,6 +196,9 @@ contract CompanyToken is IUnlockCallback {
     uint256[ASSETS] public pendingConvert;
     /// @notice Last successful conversion of each stock (deployment time before the first).
     uint256[ASSETS] public lastConvert;
+
+    /// @notice When the IMD/USDG pool was first seen with no liquidity at its price (0 while it has some).
+    uint256 public imdPoolEmptySince;
 
     /// @notice Last activity of each holder (unix seconds), see the contract notice.
     mapping(address => uint256) public lastActive;
@@ -353,6 +359,12 @@ contract CompanyToken is IUnlockCallback {
         if (bal < amount) revert InsufficientBalance();
         bool fromSystem = isSystemAccount(from);
         bool toSystem = isSystemAccount(to);
+        // A wallet coming back after more than 7 days forfeits what has expired before its timer resets, exactly as
+        // claim() does (audit 363ab052, finding 1). Bookkeeping only: no external call from a transfer.
+        if (amount != 0) {
+            if (!fromSystem && _inactive(from)) _forfeit(from);
+            if (!toSystem && msg.sender == to && _inactive(to)) _forfeit(to);
+        }
         uint256 fromWeightBefore = fromSystem ? 0 : _weight(bal);
         uint256 toWeightBefore = toSystem ? 0 : _weight(balanceOf[to]);
         unchecked {
@@ -476,6 +488,9 @@ contract CompanyToken is IUnlockCallback {
     ///         in all six assets, and resets their 7-day timer. An asset that refuses the payout is skipped and stays
     ///         claimable; a stock that fails to convert is skipped and tried again on a later claim.
     function claim() external nonReentrant returns (uint256[ASSETS] memory amounts) {
+        // Inside someone else's PoolManager unlock the pool's tokens can be borrowed to inflate the caller's weight
+        // and dodge expiry (audit 363ab052, finding 2). Our routers never claim mid-unlock.
+        if (IPoolManager(poolManager).isUnlocked()) revert Reentrancy();
         ICompanyHook(hook).flush(address(this));
         _convertAll();
         if (!isSystemAccount(msg.sender)) {
@@ -523,6 +538,7 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Sends `holder`'s expired rewards (all assets) to the protocol address (the hook's `feeRecipient`).
     ///         Callable by anyone; it can only ever move rewards that have expired, and only to that address.
     function recycle(address holder) public nonReentrant returns (uint256[ASSETS] memory expired) {
+        if (IPoolManager(poolManager).isUnlocked()) revert Reentrancy();
         if (isSystemAccount(holder)) revert NotEligible();
         expired = _recycle(holder);
     }
@@ -530,6 +546,25 @@ contract CompanyToken is IUnlockCallback {
     function recycleMany(address[] calldata holders) external {
         for (uint256 i; i < holders.length; i++) {
             if (!isSystemAccount(holders[i])) recycle(holders[i]);
+        }
+    }
+
+    function _inactive(address holder) internal view returns (bool) {
+        uint256 last = lastActive[holder];
+        return last != 0 && block.timestamp > last + INACTIVITY_PERIOD;
+    }
+
+    /// @dev Moves `holder`'s expired rewards (all assets) to the fee recipient's held balance, without any transfer;
+    ///      `sendRecycled` sends them later.
+    function _forfeit(address holder) internal {
+        for (uint256 a; a < ASSETS; a++) {
+            uint256 amount = expiredRewardsOf(holder, a);
+            if (amount == 0) continue;
+            withdrawnRewards[a][holder] += amount;
+            owed[a] -= amount;
+            recycledHeld[a] += amount;
+            totalRecycled[a] += amount;
+            emit RewardsRecycled(holder, a, amount);
         }
     }
 
@@ -581,21 +616,41 @@ contract CompanyToken is IUnlockCallback {
         // Inside someone else's unlock the swaps can't run (and the pool could be mid-manipulation): skip.
         if (IPoolManager(poolManager).isUnlocked()) return stockOut;
         uint256 cap = maxConvert() / (ASSETS - 1);
+        // No IMD/USDG liquidity at its price: nothing can be bought. Wait, but not forever (audit 363ab052,
+        // finding 3): after DEAD_AFTER every stock's rounds are paid to holders as IMD.
+        bool imdPoolDead;
+        if (cap == 0) {
+            if (imdPoolEmptySince == 0) imdPoolEmptySince = block.timestamp;
+            if (block.timestamp <= imdPoolEmptySince + DEAD_AFTER) return stockOut;
+            imdPoolDead = true;
+            cap = MAX_ROUND_IMD / (ASSETS - 1);
+        } else if (imdPoolEmptySince != 0) {
+            imdPoolEmptySince = 0;
+        }
         for (uint256 a = 1; a < ASSETS; a++) {
             if (block.timestamp < lastConvert[a] + CONVERT_INTERVAL) continue;
             uint256 imdIn = pendingConvert[a];
             if (imdIn > cap) imdIn = cap;
             if (imdIn == 0) continue;
+            if (imdPoolDead) {
+                _fallBackToImd(a, imdIn);
+                continue;
+            }
             uint256 poolLimit = stockRoundLimit(a);
-            // No liquidity at the stock pool's price: a swap would cross to whatever position sits next, at its
-            // price (audit f1d5def3, finding 2). Hand this round to holders as IMD without swapping.
-            if (poolLimit == 0) {
+            // (Almost) no liquidity at the stock pool's price: a swap would cross to whatever position sits next, at
+            // its price (audit f1d5def3, finding 2), and a dust position must not hold the round back either (audit
+            // 363ab052, finding 4). Hand this round to holders as IMD without swapping.
+            if (poolLimit < cap / 100) {
                 _fallBackToImd(a, imdIn);
                 continue;
             }
             if (imdIn > poolLimit) imdIn = poolLimit;
-            // A missing or stale price feed holds the stock until it updates (no fallback: value waits, not moves).
-            if (!_feedsFresh(a)) continue;
+            // A stale price feed (weekend, holiday) holds the stock until it updates; a feed gone for DEAD_AFTER is
+            // treated like a stock that can't be bought.
+            if (!_feedsFresh(a)) {
+                if (_feedsDead(a)) _fallBackToImd(a, imdIn);
+                continue;
+            }
             // Too little gas for a full CONVERT_GAS: skip the stock, never fall back, so a low-gas caller can't turn
             // stock into IMD and a claim never fails on it (audit f1d5def3, finding 3).
             if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) continue;
@@ -720,6 +775,9 @@ contract CompanyToken is IUnlockCallback {
         if (!okU || !okS) revert PriceOff();
         // both feeds have 8 decimals: stock = usdIn x (USDG/USD) / (stock/USD), rescaled from USDG to stock units
         uint256 fair = FullMath.mulDiv(usdIn * usdgUsd, _unit[asset], stockUsd * _usdUnit);
+        // The pool's own fee is known and can't be pushed, so the tolerance applies after it (audit 363ab052,
+        // finding 6): a 1%-fee pool keeps the same 3% margin as a 0.01% one.
+        fair = (fair * (1_000_000 - stockPools[asset].fee)) / 1_000_000;
         return (fair * (BPS - ORACLE_TOLERANCE_BPS)) / BPS;
     }
 
@@ -729,6 +787,11 @@ contract CompanyToken is IUnlockCallback {
         return okU && okS;
     }
 
+    /// @dev True when either feed of `asset` has been unusable or not updated for DEAD_AFTER.
+    function _feedsDead(uint256 asset) internal view returns (bool) {
+        return _feedAge(usdFeed) > DEAD_AFTER || _feedAge(priceFeeds[asset]) > DEAD_AFTER;
+    }
+
     /// @dev Latest answer if it is positive and no older than MAX_ORACLE_AGE; never reverts.
     function _readFeed(address feed) internal view returns (bool ok, uint256 price) {
         (bool success, bytes memory ret) = feed.staticcall(abi.encodeWithSelector(IPriceFeed.latestRoundData.selector));
@@ -736,6 +799,17 @@ contract CompanyToken is IUnlockCallback {
         (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
         if (answer <= 0 || updatedAt == 0 || updatedAt + MAX_ORACLE_AGE < block.timestamp) return (false, 0);
         return (true, uint256(answer));
+    }
+
+    /// @dev Seconds since the feed's last update; max when the feed is unusable (reverts, no data, answer <= 0).
+    function _feedAge(address feed) internal view returns (uint256) {
+        (bool success, bytes memory ret) = feed.staticcall(abi.encodeWithSelector(IPriceFeed.latestRoundData.selector));
+        if (!success || ret.length < 160) return type(uint256).max;
+        (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
+        if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp) {
+            return answer <= 0 || updatedAt == 0 ? type(uint256).max : 0;
+        }
+        return block.timestamp - updatedAt;
     }
 
     function _checkFeed(address feed) internal view {

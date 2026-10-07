@@ -6,8 +6,8 @@ What $COMPANY does, what it must guarantee, and where reviewers should look hard
 
 The Zero Person Billion Dollar Company ($COMPANY) is one fixed-supply token on **Robinhood Chain** (chain ID 4663, an Arbitrum Orbit L2), traded in one **Uniswap v4** pool against **IMD** (`0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127`, a LayerZero OFT).
 
-- The whole supply (1,000,000,000) is single-sided liquidity owned by `CompanyHook`, which has no function to remove it. The hook is also the pool's v4 hook and blocks other pools and outside liquidity.
-- The hook charges **4% of the IMD side of every swap**, through any router: 1% protocol (`feeRecipient`), 3% holders. Pool LP fee is 0.
+- The whole supply (1,000,000,000) is single-sided liquidity owned by `CompanyHook`, which has no function to remove it. The hook is also the pool's v4 hook and blocks other pools *that use this hook* and outside liquidity in its pool. It can't stop someone opening a separate, hookless $COMPANY pool elsewhere; swaps there pay no fee (see section 7).
+- The hook charges **4% of the IMD side of every swap in its pool** (the pool holding the locked supply), through any router: 1% protocol (`feeRecipient`), 3% holders. Pool LP fee is 0.
 - `CompanyToken.distribute()` splits each holder-fee arrival: **50% credited in IMD**, **10% reserved per stock** for NVDA, GOOGL, AAPL, GME and MSTR (Robinhood Stock Tokens, which have per-address blocklists).
 - Reserves are converted IMD → USDG → stock through fixed hookless v4 pools (`CompanyConfig.sol` lists them with their ids), **at the start of every `claim()`** or by anyone through `convert()`. One round spends at most `maxConvert()` = 0.25% of the IMD/USDG pool's virtual IMD depth, shared by the five stocks; each stock converts at most once per minute. Each stock runs in its own `try this.convertStock{gas: CONVERT_GAS}(...)`; when a purchase fails, that round's IMD for the stock is credited to holders as IMD at once (`_fallBackToImd`). With too little gas left for a full `CONVERT_GAS` the stock is skipped (never fallen back), so a caller can't starve purchases to force the fallback, and a claim never fails on it. Every purchase must also receive at least 97% of what the Chainlink stock/USD and USDG/USD feeds imply (`minStockOut`), otherwise it reverts `PriceOff` and the stock is skipped this round; a stale or missing feed (older than 4 days) holds the stock. A stock pool with no liquidity at its price (`stockRoundLimit` = 0) has the round credited as IMD without a swap.
 - Only wallets holding **≥ 100,000 $COMPANY** earn (`MIN_HOLDING`): earning weight is the balance, or 0 below it.
@@ -61,11 +61,25 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 4 | Info: README described the removed 30-day release and an old test count | Updated. |
 | 5 | Info: AUDIT.md listed "a router buy resets the expiry timer" as accepted | Removed: a buy is not activity since fix 4 of 78c00339. |
 
-## 6. Known and accepted
+## 6. Resolved: IMD Swarm final check 363ab052 (on commit d624407)
 
-- **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight, so a gift after a distribution can delay older rewards' expiry by up to 7 days, to nobody's gain. Documented in the contract notice.
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | High: a self-transfer of 1 wei resets the timer and revives expired rewards | `_transfer` forfeits a returning sender's (or pulling receiver's) expired rewards into `recycledHeld` before resetting the timer: bookkeeping only, no external call in a transfer. `test_final1_selfTransferForfeitsExpiredFirst`. |
+| 2 | High: claim inside a foreign unlock with flash-borrowed pool tokens dodges expiry | `claim()` and `recycle()` revert `Reentrancy` while the PoolManager is unlocked. `test_final2_claimWithBorrowedPoolTokensIsRefused`. The capital-backed gift variant is accepted (section 7). |
+| 3 | Medium: a dead feed or an empty IMD/USDG pool locks a stock's reserve forever | After `DEAD_AFTER` (30 days) of a dead or unusable feed, or an IMD/USDG pool with no liquidity at its price (`imdPoolEmptySince`), rounds are paid to holders as IMD. `test_final3_deadFeedFallsBackToImdAfter30Days`, `test_final3_emptyImdPoolFallsBackToImdAfter30Days`. |
+| 4 | Low: a dust position defeats the empty-pool fallback | A stock pool that can take less than 1% of a round counts as empty (round paid as IMD). `test_final4_dustPositionCountsAsEmpty`. |
+| 5 | Low: inside the 3% tolerance a JIT sandwich of a thin stock pool can still skim | Accepted bound: at most about 3% of one stock's share of a round (≤ 4 IMD) per minute, only while that pool's in-range depth × fee is below one round. Not exploitable on any pool today. |
+| 6 | Info: GME's 1% fee eats most of the 3% tolerance | The pool's own fee is removed from the Chainlink-implied amount before the 3% tolerance. `test_final6_poolFeeExcludedFromTolerance`. |
+| 7 | Info: a separate hookless $COMPANY pool pays no fee | Inherent (the token has no transfer restrictions, which the scanners require). Documentation corrected: the fee applies to swaps in the hook's pool, which holds all the locked liquidity. |
+
+## 7. Known and accepted
+
+- **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variant is closed (claim and recycle refuse to run mid-unlock).
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.
-- The IMD → USDG hop has no oracle (IMD has no Chainlink feed); it rests on the 20 IMD round ceiling and the IMD/USDG pool's depth. The stock hop is checked against Chainlink. Fixed routes can't be changed after deployment.
+- The IMD → USDG hop has no oracle (IMD has no Chainlink feed); it rests on the 20 IMD round ceiling and the IMD/USDG pool's depth. The stock hop is checked against Chainlink. Fixed routes and feeds can't be changed after deployment.
+- Within the 3% oracle tolerance (after the pool fee), a sandwich of a thin stock pool can skim at most about 3% of that stock's round.
+- Anyone can open a separate, hookless $COMPANY pool; swaps there pay no fee.
 - Anyone able to make a purchase fail on purpose (e.g. an LP pulling a stock pool's liquidity in the same transaction) can turn that round's stock share into IMD; holders still receive its full value in IMD.
 - A reverse split of a stock token that shrinks this contract's balance would leave the last claimers short.
 - Stock tokens are restricted for US persons and filtered at the sequencer; not modelled in tests.

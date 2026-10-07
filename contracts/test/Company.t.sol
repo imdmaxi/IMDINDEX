@@ -752,6 +752,7 @@ contract CompanyTest is Test {
         // holder fees wait in the hook; a flash holder tries to have them distributed while holding the pool
         FlashHolder f = new FlashHolder(IPoolManager(address(pm)), token);
         f.run(1);
+        vm.expectRevert(); // claim refuses to run inside someone else's unlock (audit 363ab052, finding 2)
         f.run(4);
         assertEq(token.withdrawableRewardOf(address(f), 0), 0);
         assertEq(hook.pendingHolderFees(address(token)), 30e18, "nothing distributed mid-unlock");
@@ -769,6 +770,7 @@ contract CompanyTest is Test {
         vm.warp(block.timestamp + 1 minutes);
         uint256 pending = token.pendingConvert(1);
         f.run(3);
+        vm.expectRevert();
         f.run(4);
         assertEq(token.pendingConvert(1), pending, "no conversion mid-unlock");
     }
@@ -846,9 +848,9 @@ contract CompanyTest is Test {
         assertApproxEqRel(token.stockRoundLimit(1), 1_500e18, 0.01e18);
         // the NVDA pool loses almost all its liquidity
         PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
-        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_990e18, 0), "");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_900e18, 0), "");
         uint256 limit = token.stockRoundLimit(1);
-        assertApproxEqRel(limit, 0.015e18, 0.01e18);
+        assertApproxEqRel(limit, 0.15e18, 0.01e18);
         vm.warp(block.timestamp + 1 minutes);
         uint256 pending = token.pendingConvert(1);
         token.convert();
@@ -934,6 +936,117 @@ contract CompanyTest is Test {
         emit CompanyHook.Trade(address(token), wallet, true, 0, 0, 0, 0);
         vm.prank(wallet, alice); // msg.sender = wallet, tx.origin = alice
         ethRouter.buyWithEth{value: 1 ether}(address(token), 0, block.timestamp);
+    }
+
+    // ------------------------------------------------------------ IMD Swarm final check 363ab052
+
+    /// @dev Finding 1 (high): an inactive wallet sending itself 1 wei no longer revives its expired rewards.
+    function test_final1_selfTransferForfeitsExpiredFirst() public {
+        _buy(alice, 20e18);
+        _buy(bob, 20e18);
+        vm.warp(block.timestamp + 8 days);
+        _buy(bob, 10e18); // one distribution inside alice's last 7 days
+        uint256 expired = token.expiredRewardsOf(alice, 0);
+        uint256 withdrawable = token.withdrawableRewardOf(alice, 0);
+        assertGt(expired, 0);
+        vm.prank(alice);
+        token.transfer(alice, 1);
+        assertEq(token.recycledHeld(0), expired, "expired part moved to the protocol before the timer reset");
+        assertEq(token.withdrawableRewardOf(alice, 0), withdrawable - expired);
+        uint256 fee = imd.balanceOf(FEE_RECIPIENT);
+        vm.prank(alice);
+        uint256[6] memory paid = token.claim();
+        assertEq(paid[0], withdrawable - expired, "only the last 7 days are paid");
+        assertEq(token.sendRecycled(0), expired);
+        assertEq(imd.balanceOf(FEE_RECIPIENT) - fee, expired);
+    }
+
+    /// @dev Finding 2 (high): a wallet can't claim inside a PoolManager unlock with borrowed pool tokens.
+    function test_final2_claimWithBorrowedPoolTokensIsRefused() public {
+        _buy(alice, 1_000e18);
+        FlashHolder f = new FlashHolder(IPoolManager(address(pm)), token);
+        uint256 half = token.balanceOf(alice) / 2;
+        vm.prank(alice);
+        token.transfer(address(f), half); // f's first receipt: it is active and earns
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 8 days);
+        _buy(bob, 10e18);
+        uint256 expired = token.expiredRewardsOf(address(f), 0);
+        assertGt(expired, 0);
+        vm.expectRevert();
+        f.run(4); // borrow the pool's tokens, then claim
+        assertEq(token.expiredRewardsOf(address(f), 0), expired, "nothing dodged");
+        token.recycle(address(f));
+        assertEq(token.expiredRewardsOf(address(f), 0), 0);
+    }
+
+    /// @dev Finding 3 (medium): a feed dead for 30 days hands that stock's rounds to holders as IMD; a weekend-stale
+    ///      one still just waits.
+    function test_final3_deadFeedFallsBackToImdAfter30Days() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 5 days);
+        feeds[0].set(1e8, block.timestamp - 5 days); // stale, not dead
+        _refreshFeedsExcept(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18, "stale: waits");
+        vm.warp(block.timestamp + 26 days); // now 31 days without an update
+        _refreshFeedsExcept(0);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18 - 4e18, "dead: one round paid as IMD");
+        assertEq(token.owed(0), owedImd + 4e18);
+    }
+
+    /// @dev Finding 3, second input: an IMD/USDG pool with no liquidity for 30 days.
+    function test_final3_emptyImdPoolFallsBackToImdAfter30Days() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        assertEq(token.maxConvert(), 0);
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert();
+        assertEq(token.imdPoolEmptySince(), block.timestamp);
+        assertEq(token.pendingConvert(1), 6e18, "waits at first");
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(99);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.owed(0), owedImd + 5 * 4e18, "every stock's round paid as IMD");
+    }
+
+    /// @dev Finding 4 (low): a dust position no longer holds back the empty-pool fallback.
+    function test_final4_dustPositionCountsAsEmpty() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, 2e9, 0), "");
+        assertGt(token.stockRoundLimit(1), 0);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18 - 4e18, "round paid as IMD");
+        assertEq(token.owed(0), owedImd + 4e18);
+    }
+
+    /// @dev Finding 6 (info): the pool's own fee is excluded before the 3% tolerance, so a 2.5% gap still converts
+    ///      in a 0.3% pool (it would have been skipped before).
+    function test_final6_poolFeeExcludedFromTolerance() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        feeds[0].set(0.975e8, block.timestamp); // Chainlink 2.5% below the pool
+        uint256[6] memory out = token.convert();
+        assertGt(out[1], 0, "within 3% after the 0.3% fee: bought");
+    }
+
+    function _refreshFeedsExcept(uint256 skip) internal {
+        usdFeed.set(1e8, block.timestamp);
+        for (uint256 i; i < 5; i++) {
+            if (i != skip) feeds[i].set(1e8, block.timestamp);
+        }
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
