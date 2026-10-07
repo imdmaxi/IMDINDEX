@@ -31,13 +31,27 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 1. **Solvency, every asset:** IMD held ≥ `owed[0]` + Σ `pendingConvert`; each stock held ≥ `owed[stock]`; Σ withdrawable ≤ `owed`.
 2. **No one earns from their own trade** through `CompanyRouter`/`CompanyEthRouter` (flush happens before the buyer receives tokens).
 3. **Flash-borrowed pool tokens never earn:** nothing is credited while another caller has the `PoolManager` unlocked; `convert` cannot run inside a foreign unlock.
-4. **Conversion can't be profitably sandwiched or drained:** the per-round cap, the per-stock 1-minute spacing (many claims in one transaction convert once), the self-call isolation, and the `maxConvert` depth read. Can the cap be inflated, or a round made to sell more than 0.25% of depth?
+4. **Conversion can't be profitably sandwiched or drained:** the per-round cap, the per-stock 1-minute spacing (many claims in one transaction convert once), the self-call isolation, the fixed 20 IMD round ceiling (`MAX_ROUND_IMD`) on top of the `maxConvert` depth read, and the per-stock pool limit (`stockRoundLimit`). Can a round be made to sell more than its ceiling or limits?
 5. **Minimum holding:** `eligibleSupply` always equals the sum of weights; crossing 100,000 either way never changes rewards already earned.
 6. **Expiry:** `recycle` never moves more than `expiredRewardsOf`, and only to `feeRecipient`.
 7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock that can't be bought falls back to IMD one capped round at a time, and only on a real failure, never because the caller sent too little gas.
 8. **No privileged control over balances, fees or transfers:** the token's owner is renounced; the hook owner can only `openPool` once and change `feeRecipient`.
 
-## 4. Known and accepted
+## 4. Resolved: IMD Swarm audit 78c00339 (on commit 9fe5e93)
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | High: just-in-time liquidity inflates `maxConvert()` and makes sandwiching profitable | Fixed ceiling `MAX_ROUND_IMD` = 20 IMD per round; `test_audit1_jitLiquidityCannotInflateRound` replays the attack (round ≤ 20 IMD, attacker loses). |
+| 2 | Low: the USDG → stock hop is sized only by the IMD/USDG pool | `stockRoundLimit(asset)`: half the stock pool's fee × its virtual USDG depth, priced in IMD; `test_audit2_thinStockPoolLimitsItsRound`. |
+| 3 | Low: partial fills of IMD-specified swaps overpay the fee or Panic | Hook reverts `PartialFill` unless the swap filled completely; the event amount can't underflow; `test_audit3_partialFillIsRejected_fullFillWorks`. |
+| 4 | Low: anyone can reset any wallet's expiry timer by moving 1 wei out of the PoolManager | Receipts from the PoolManager no longer count as activity (buying alone isn't activity); `test_audit4_poolManagerPingDoesNotResetTimer`. |
+| 5 | Low: `releaseStuckReserve` fires on an idle, healthy stock | Function removed: a failed purchase now credits that round's IMD to holders at once (`_fallBackToImd`, gas-bounded). |
+| 6 | Low: stock is credited to holders at conversion time, not fee time | Accepted design limit, documented in the contract notice and README (conversions run at most a minute apart on every claim). |
+| 7 | Info: stock already bought is frozen if its token blocks this contract | No in-contract fix possible; documented in the contract notice. |
+| 8 | Info: expired stock goes to the claimer when the fee recipient is blocked | Refused expired amounts stay in `recycledHeld` for `sendRecycled`; `test_audit8_expiredStockHeldWhenFeeRecipientBlocked`. |
+| 9 | Info: ETH-router trades logged with tx.origin | The hook decodes the user from hookData for both routers; `test_audit9_ethRouterTradeLogsRealBuyer`. |
+
+## 5. Known and accepted
 
 - **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight, so a gift after a distribution can delay older rewards' expiry by up to 7 days, to nobody's gain. Documented in the contract notice.
 - A buy delivered by a router to another address resets that address's expiry timer (costs the buyer 4%).

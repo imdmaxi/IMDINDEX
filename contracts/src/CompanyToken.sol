@@ -36,8 +36,8 @@ interface ICompanyHook {
 ///
 ///         Only wallets holding at least 100,000 $COMPANY earn (`MIN_HOLDING`); smaller balances earn nothing.
 ///         Rewards are claimed with `claim()`, which first converts waiting reserves into stocks (no keeper
-///         needed; `convert()` does the same for anyone), then pays all six assets. A wallet is active when it claims, buys
-///         (receives tokens from the pool), sends tokens, pulls tokens itself, or receives tokens for the first time. Rewards
+///         needed; `convert()` does the same for anyone), then pays all six assets. A wallet is active when it claims, sends tokens, pulls tokens
+///         itself, or receives tokens for the first time (buying alone does not count: claim at least weekly). Rewards
 ///         of a wallet inactive for more than 7 days expire, except what it earned during those last 7 days, and go
 ///         to the protocol address (the hook's `feeRecipient`).
 ///
@@ -46,8 +46,10 @@ interface ICompanyHook {
 ///             its last 7 days count as if they had earned for it in that window. A gift after a distribution can
 ///             delay the expiry of older rewards by at most 7 days, to nobody's gain (the sender keeps its own
 ///             rewards on those tokens);
-///           - tokens delivered straight from the pool count as a buy, so buying through a router that delivers
-///             to another address resets that address's timer (it costs the buyer the 4% fee).
+///           - stock rewards are credited to whoever holds when the stock is bought (at a claim or `convert()`),
+///             not when the fee was paid (audit 78c00339, finding 6). Conversions run at most a minute apart
+///             whenever anyone claims, which keeps the waiting reserve small;
+///           - stock already bought can't be moved if its token later blocks this contract (finding 7).
 ///
 ///         Stock tokens can block addresses. A payout that fails stays claimable (it is not lost), and the other
 ///         assets are still paid. When a stock can't be bought, that round's IMD for it is paid to holders as IMD.
@@ -108,6 +110,11 @@ contract CompanyToken is IUnlockCallback {
     ///         depth in total, shared by the five stocks. Sandwiching it then costs more in that pool's 0.9% fees
     ///         than it can move the price.
     uint256 public constant MAX_CONVERT_BPS = 25;
+    /// @notice Fixed ceiling on one round, whatever the pool reads: the depth above is read in the same transaction,
+    ///         and just-in-time liquidity can inflate it (audit 78c00339, finding 1). Sandwiching a round stays
+    ///         unprofitable while the IMD/USDG pool's real depth exceeds about ROUND/0.9% (~2,200 IMD; ~19,750 at
+    ///         launch).
+    uint256 public constant MAX_ROUND_IMD = 20e18;
     /// @notice Minimum time between two conversions of the same stock. Every transaction in a block shares one
     ///         timestamp, so this allows one round per block at most: nobody can claim many times in one
     ///         transaction to sell more IMD at a price they pushed.
@@ -159,6 +166,8 @@ contract CompanyToken is IUnlockCallback {
     uint256[ASSETS] public owed;
     uint256[ASSETS] public totalDistributed;
     uint256[ASSETS] public totalRecycled;
+    /// @notice Expired rewards the fee recipient couldn't receive yet (its address refused by that asset).
+    uint256[ASSETS] public recycledHeld;
 
     /// @notice IMD set aside for each stock, waiting for `convert` (index 0 unused).
     uint256[ASSETS] public pendingConvert;
@@ -323,14 +332,12 @@ contract CompanyToken is IUnlockCallback {
         if (!toSystem) _reweigh(to, toWeightBefore, _weight(balanceOf[to]));
 
         // Activity (a zero-amount transferFrom needs no allowance, so it never counts). Sending is the holder's own
-        // act. Receiving counts when the recipient initiated it, when the tokens come straight out of the pool (a
-        // buy: CompanyRouter delivers bought tokens from the PoolManager), or for a first receipt. Other gifts don't
-        // reset the recipient's timer (they can still delay expiry: see the contract notice).
+        // act. Receiving counts only when the recipient initiated it or for a first receipt. Tokens arriving from the
+        // PoolManager don't count: anyone can move 1 wei out of it to any address for free (audit 78c00339,
+        // finding 4), so a buy is not activity; claiming or sending is.
         if (amount != 0) {
             if (!fromSystem) lastActive[from] = block.timestamp;
-            if (!toSystem && (msg.sender == to || from == poolManager || lastActive[to] == 0)) {
-                lastActive[to] = block.timestamp;
-            }
+            if (!toSystem && (msg.sender == to || lastActive[to] == 0)) lastActive[to] = block.timestamp;
         }
 
         emit Transfer(from, to, amount);
@@ -373,7 +380,7 @@ contract CompanyToken is IUnlockCallback {
         if (msg.sender != hook && IPoolManager(poolManager).isUnlocked()) return 0;
         if (eligibleSupply < MIN_ELIGIBLE_SUPPLY) return 0;
         uint256 bal = quote.balanceOf(address(this));
-        uint256 tracked = owed[0] + _pendingTotal();
+        uint256 tracked = owed[0] + _pendingTotal() + recycledHeld[0];
         if (bal <= tracked) return 0;
         amount = bal - tracked;
         uint256 perStock = (amount * STOCK_SHARE_BPS) / BPS;
@@ -390,8 +397,9 @@ contract CompanyToken is IUnlockCallback {
         if (IPoolManager(poolManager).isUnlocked()) return 0;
         if (eligibleSupply < MIN_ELIGIBLE_SUPPLY) return 0;
         uint256 bal = assets[asset].balanceOf(address(this));
-        if (bal <= owed[asset]) return 0;
-        amount = bal - owed[asset];
+        uint256 tracked = owed[asset] + recycledHeld[asset];
+        if (bal <= tracked) return 0;
+        amount = bal - tracked;
         _credit(asset, amount);
     }
 
@@ -498,15 +506,27 @@ contract CompanyToken is IUnlockCallback {
             if (amount == 0) continue;
             withdrawnRewards[a][holder] += amount;
             owed[a] -= amount;
-            if (_tryTransfer(assets[a], to, amount)) {
-                expired[a] = amount;
-                totalRecycled[a] += amount;
-                emit RewardsRecycled(holder, a, amount);
-            } else {
-                // Refused by the asset: it stays with the holder until a later recycle or claim.
-                withdrawnRewards[a][holder] -= amount;
-                owed[a] += amount;
-            }
+            expired[a] = amount;
+            totalRecycled[a] += amount;
+            emit RewardsRecycled(holder, a, amount);
+            // Expired rewards leave the holder either way. If the asset refuses the fee recipient (a stock token can
+            // block it), they wait here for `sendRecycled` instead of going back to the holder (audit 78c00339,
+            // finding 8).
+            if (!_tryTransfer(assets[a], to, amount)) recycledHeld[a] += amount;
+        }
+    }
+
+    /// @notice Sends expired rewards held for the fee recipient (see `recycledHeld`) once the asset accepts it, for
+    ///         example after the hook owner points `feeRecipient` at an address the stock token allows. Anyone may
+    ///         call it; it can only send to the current `feeRecipient`.
+    function sendRecycled(uint256 asset) external nonReentrant returns (uint256 amount) {
+        if (asset >= ASSETS) revert BadAsset();
+        amount = recycledHeld[asset];
+        if (amount == 0) return 0;
+        recycledHeld[asset] = 0;
+        if (!_tryTransfer(assets[asset], ICompanyHook(hook).feeRecipient(), amount)) {
+            recycledHeld[asset] = amount;
+            amount = 0;
         }
     }
 
@@ -531,6 +551,8 @@ contract CompanyToken is IUnlockCallback {
             if (block.timestamp < lastConvert[a] + CONVERT_INTERVAL) continue;
             uint256 imdIn = pendingConvert[a];
             if (imdIn > cap) imdIn = cap;
+            uint256 poolLimit = stockRoundLimit(a);
+            if (imdIn > poolLimit) imdIn = poolLimit == 0 ? imdIn : poolLimit; // an empty pool fails below -> IMD
             if (imdIn == 0) continue;
             // Refuse rather than let a low-gas call make purchases fail and turn stock rewards into IMD. With this
             // much left, the call below always gets its full CONVERT_GAS (EIP-150 keeps 1/64 back).
@@ -616,7 +638,32 @@ contract CompanyToken is IUnlockCallback {
         uint256 imdDepth = Currency.unwrap(key.currency0) == quote
             ? FullMath.mulDiv(liquidity, Q96, sqrtP)  // IMD is currency0: x = L / sqrtP
             : FullMath.mulDiv(liquidity, sqrtP, Q96); // IMD is currency1: y = L * sqrtP
-        return (imdDepth * MAX_CONVERT_BPS) / BPS;
+        uint256 cap = (imdDepth * MAX_CONVERT_BPS) / BPS;
+        return cap > MAX_ROUND_IMD ? MAX_ROUND_IMD : cap;
+    }
+
+    /// @notice Most IMD one round may spend on stock `asset`, from its own USDG/stock pool (audit 78c00339,
+    ///         finding 2): half the pool fee times its virtual USDG depth, priced in IMD at the IMD/USDG pool. A
+    ///         sandwich of that hop then costs more in the pool's fee than it can move the price. Zero for a pool
+    ///         with no liquidity (the round then falls back to IMD).
+    function stockRoundLimit(uint256 asset) public view returns (uint256) {
+        if (asset == 0 || asset >= ASSETS) revert BadAsset();
+        Pool memory p = stockPools[asset];
+        PoolKey memory sk = _key(usd, assets[asset], p);
+        (uint160 sp,,,) = IPoolManager(poolManager).getSlot0(sk.toId());
+        uint256 liquidity = IPoolManager(poolManager).getLiquidity(sk.toId());
+        if (sp == 0 || liquidity == 0) return 0;
+        uint256 usdDepth = Currency.unwrap(sk.currency0) == usd
+            ? FullMath.mulDiv(liquidity, Q96, sp)  // USDG is currency0
+            : FullMath.mulDiv(liquidity, sp, Q96); // USDG is currency1
+        uint256 usdLimit = FullMath.mulDiv(usdDepth, p.fee, 2_000_000); // fee is in millionths
+        PoolKey memory ik = _key(quote, usd, imdUsdPool);
+        (uint160 ip,,,) = IPoolManager(poolManager).getSlot0(ik.toId());
+        if (ip == 0) return 0;
+        // price = currency1 per currency0 = (ip / 2^96)^2
+        return Currency.unwrap(ik.currency0) == quote
+            ? FullMath.mulDiv(FullMath.mulDiv(usdLimit, Q96, ip), Q96, ip)  // USDG per IMD: IMD = USDG / price
+            : FullMath.mulDiv(FullMath.mulDiv(usdLimit, ip, Q96), ip, Q96); // IMD per USDG: IMD = USDG * price
     }
 
     /// @notice v4 pool keys of the conversion route for stock `asset`: IMD/USDG, then USDG/stock.

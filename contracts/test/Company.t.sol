@@ -11,6 +11,8 @@ import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
+import {PoolId} from "v4-core/src/types/PoolId.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {SwapParams, ModifyLiquidityParams} from "v4-core/src/types/PoolOperation.sol";
 
 import {CompanyHook} from "../src/CompanyHook.sol";
@@ -21,6 +23,31 @@ import {DeployLib} from "../script/DeployLib.sol";
 import {MockERC20, MockStock} from "./Mocks.sol";
 
 /// @notice Borrows the pool's $COMPANY inside an unlock, then tries to distribute, convert or claim with it.
+/// @notice Audit finding 4: moves 1 wei of $COMPANY out of the PoolManager to `victim`, repaid from its own balance.
+contract TimerPinger is IUnlockCallback {
+    IPoolManager immutable pm;
+    CompanyToken immutable t;
+    address victim;
+
+    constructor(IPoolManager pm_, CompanyToken t_) {
+        pm = pm_;
+        t = t_;
+    }
+
+    function ping(address v) external {
+        victim = v;
+        pm.unlock("");
+    }
+
+    function unlockCallback(bytes calldata) external returns (bytes memory) {
+        pm.take(Currency.wrap(address(t)), victim, 1);
+        pm.sync(Currency.wrap(address(t)));
+        t.transfer(address(pm), 1);
+        pm.settle();
+        return "";
+    }
+}
+
 contract FlashHolder is IUnlockCallback {
     IPoolManager immutable pm;
     CompanyToken immutable t;
@@ -51,6 +78,8 @@ contract FlashHolder is IUnlockCallback {
 }
 
 contract CompanyTest is Test {
+    using StateLibrary for PoolManager;
+
     address constant FEE_RECIPIENT = 0x8F5A29c82e8285Db3B2af8D0caF5404b0f9ce834;
     uint256 constant SUPPLY = 1_000_000_000e18;
     uint256 constant START_MCAP = 306e18;
@@ -355,10 +384,10 @@ contract CompanyTest is Test {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         vm.warp(block.timestamp + 1 minutes);
-        uint256 cap = token.maxConvert() / 5; // 25 IMD per round, shared by five stocks
+        uint256 cap = token.maxConvert() / 5; // 20 IMD per round (the fixed ceiling), shared by five stocks
         uint256[6] memory out = token.convert();
-        // 5 IMD -> ~4.955 USDG (0.9%) -> ~4.94 NVDA (0.3%), small price impact
-        assertApproxEqRel(out[1], 4.94e18, 0.01e18);
+        // 4 IMD -> ~3.964 USDG (0.9%) -> ~3.95 NVDA (0.3%), small price impact
+        assertApproxEqRel(out[1], 3.95e18, 0.01e18);
         assertEq(token.pendingConvert(1), 6e18 - cap);
         assertEq(token.owed(1), out[1]);
         uint256 a = token.withdrawableRewardOf(alice, 1);
@@ -388,7 +417,7 @@ contract CompanyTest is Test {
         for (uint256 i; i < 10; i++) {
             _buy(bob, 3_333e18);
         }
-        assertApproxEqRel(token.maxConvert(), 25e18, 0.01e18);
+        assertEq(token.maxConvert(), 20e18, "fixed ceiling below 0.25% of depth");
 
         vm.warp(block.timestamp + 1 minutes);
         uint256[6] memory pending;
@@ -555,7 +584,7 @@ contract CompanyTest is Test {
         assertEq(imd.balanceOf(FEE_RECIPIENT) - feeImd, w);
     }
 
-    function test_expiry_giftDoesNotResetTimer_buyDoes() public {
+    function test_expiry_giftsAndBuysDontResetTimer_claimDoes() public {
         _buy(alice, 1_000e18);
         uint256 got = _buy(bob, 1_000e18);
         vm.warp(block.timestamp + 8 days);
@@ -563,7 +592,10 @@ contract CompanyTest is Test {
         token.transfer(alice, got / 2);
         assertGt(token.expiredRewardsOf(alice, 0), 0, "gift is not activity");
         _buy(alice, 1e18);
-        assertEq(token.expiredRewardsOf(alice, 0), 0, "buy is activity");
+        assertGt(token.expiredRewardsOf(alice, 0), 0, "a buy is not activity (audit finding 4)");
+        vm.prank(alice);
+        token.claim();
+        assertEq(token.lastActive(alice), block.timestamp, "claim is activity");
     }
 
     // ------------------------------------------------------------ flash-borrow guard
@@ -609,6 +641,161 @@ contract CompanyTest is Test {
         assertEq(token.distributeStock(3), 50e18);
         assertApproxEqAbs(token.withdrawableRewardOf(alice, 3), 50e18, 10);
         assertEq(token.distributeStock(3), 0);
+    }
+
+    // ------------------------------------------------------------ IMD Swarm audit 78c00339
+
+    /// @dev Finding 1 (high): just-in-time liquidity inflates the depth-based cap. The fixed ceiling holds the round
+    ///      to 20 IMD and the sandwich loses money (the audit's exact sequence).
+    function test_audit1_jitLiquidityCannotInflateRound() public {
+        _buy(alice, 1_000e18);
+        for (uint256 i; i < 10; i++) {
+            _buy(bob, 3_333e18);
+        }
+        vm.warp(block.timestamp + 1 minutes);
+        PoolKey memory k = _key(address(imd), address(usdg), 9000, 90);
+        bool imdIs0 = address(imd) < address(usdg);
+        address attacker = makeAddr("attacker");
+        imd.mint(attacker, 1_000_000e18);
+        usdg.mint(attacker, 1_000_000e18);
+        vm.startPrank(attacker);
+        imd.approve(address(extRouter), type(uint256).max);
+        usdg.approve(address(extRouter), type(uint256).max);
+        imd.approve(address(lp), type(uint256).max);
+        usdg.approve(address(lp), type(uint256).max);
+        uint256 before = imd.balanceOf(attacker) + usdg.balanceOf(attacker);
+        // (1) push the price
+        extRouter.swap(
+            k,
+            SwapParams(imdIs0, -10_000e18, imdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            settings,
+            ""
+        );
+        // (2) add a narrow position around the new tick
+        (, int24 tick,,) = pm.getSlot0(k.toId());
+        int24 lower = (tick / 90) * 90 - 90;
+        if (tick < 0 && tick % 90 != 0) lower -= 90;
+        lp.modifyLiquidity(k, ModifyLiquidityParams(lower, lower + 270, 2_000_000e18, 0), "");
+        vm.stopPrank();
+        assertEq(token.maxConvert(), 20e18, "cap can't be inflated");
+        // (3) the round
+        uint256 tokenImd = imd.balanceOf(address(token));
+        token.convert();
+        assertLe(tokenImd - imd.balanceOf(address(token)), 20e18, "round sells at most 20 IMD");
+        // (4) remove the position, (5) swap back
+        vm.startPrank(attacker);
+        lp.modifyLiquidity(k, ModifyLiquidityParams(lower, lower + 270, -2_000_000e18, 0), "");
+        uint256 usdGained =
+            usdg.balanceOf(attacker) + 10_000e18 > 1_000_000e18 ? usdg.balanceOf(attacker) - 1_000_000e18 : 0;
+        extRouter.swap(
+            k,
+            SwapParams(
+                !imdIs0, -int256(usdGained), !imdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+            ),
+            settings,
+            ""
+        );
+        vm.stopPrank();
+        assertLe(imd.balanceOf(attacker) + usdg.balanceOf(attacker), before, "sandwich not profitable");
+    }
+
+    /// @dev Finding 2: each stock's round is also limited by its own pool, so a thin stock pool takes only a small
+    ///      round.
+    function test_audit2_thinStockPoolLimitsItsRound() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        // deep pools: the limit is far above the round
+        assertApproxEqRel(token.stockRoundLimit(1), 1_500e18, 0.01e18);
+        // the NVDA pool loses almost all its liquidity
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_990e18, 0), "");
+        uint256 limit = token.stockRoundLimit(1);
+        assertApproxEqRel(limit, 0.015e18, 0.01e18);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 pending = token.pendingConvert(1);
+        token.convert();
+        assertEq(pending - token.pendingConvert(1), limit, "NVDA round held to its pool's limit");
+    }
+
+    /// @dev Finding 3: a swap that fills only part of an IMD-specified request is rejected instead of overpaying.
+    function test_audit3_partialFillIsRejected_fullFillWorks() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory k = hook.poolKey(address(token));
+        bool imdIs0 = Currency.unwrap(k.currency0) == address(imd);
+        (, int24 tick,,) = pm.getSlot0(k.toId());
+        // selling $COMPANY for an exact 3,000 IMD, with a price limit it hits first
+        uint160 limit = TickMath.getSqrtPriceAtTick(imdIs0 ? tick + 2000 : tick - 2000);
+        vm.prank(alice);
+        token.approve(address(extRouter), type(uint256).max);
+        vm.prank(alice);
+        vm.expectRevert();
+        extRouter.swap(k, SwapParams(!imdIs0, 3_000e18, limit), settings, "");
+        // the same exact-out sell for a small amount fills fully and pays exactly 4%
+        uint256 fees = hook.pendingHolderFees(address(token)) + hook.pendingProtocolFees(address(imd));
+        uint256 imdBefore = imd.balanceOf(alice);
+        vm.prank(alice);
+        extRouter.swap(
+            k,
+            SwapParams(!imdIs0, 10e18, !imdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            settings,
+            ""
+        );
+        assertEq(imd.balanceOf(alice) - imdBefore, 10e18);
+        assertEq(
+            hook.pendingHolderFees(address(token)) + hook.pendingProtocolFees(address(imd)) - fees,
+            (uint256(10e18) * 400) / 9600
+        );
+    }
+
+    /// @dev Finding 4: moving 1 wei out of the PoolManager no longer resets anyone's expiry timer.
+    function test_audit4_poolManagerPingDoesNotResetTimer() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        TimerPinger pinger = new TimerPinger(IPoolManager(address(pm)), token);
+        vm.prank(bob);
+        token.transfer(address(pinger), 1);
+        vm.warp(block.timestamp + 8 days);
+        uint256 expired = token.expiredRewardsOf(alice, 0);
+        assertGt(expired, 0);
+        uint256 last = token.lastActive(alice);
+        pinger.ping(alice);
+        assertEq(token.lastActive(alice), last, "timer not reset");
+        assertEq(token.expiredRewardsOf(alice, 0), expired);
+    }
+
+    /// @dev Finding 8: expired stock the fee recipient can't receive is held for it, not paid to the claimer.
+    function test_audit8_expiredStockHeldWhenFeeRecipientBlocked() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert();
+        vm.warp(block.timestamp + 8 days);
+        token.convert(); // this minute's round, so the claim below buys nothing new
+        uint256 nvda = token.expiredRewardsOf(alice, 1);
+        uint256 withdrawable = token.withdrawableRewardOf(alice, 1);
+        assertGt(nvda, 0);
+        _stock(1).setBlocked(FEE_RECIPIENT, true);
+        vm.prank(alice);
+        uint256[6] memory paid = token.claim();
+        assertEq(paid[1], withdrawable - nvda, "only the recent NVDA is paid; the expired part isn't");
+        assertEq(token.recycledHeld(1), nvda, "held for the fee recipient");
+        assertEq(token.sendRecycled(1), 0, "still refused");
+        _stock(1).setBlocked(FEE_RECIPIENT, false);
+        assertEq(token.sendRecycled(1), nvda);
+        assertEq(_stock(1).balanceOf(FEE_RECIPIENT), nvda);
+        assertEq(token.recycledHeld(1), 0);
+    }
+
+    /// @dev Finding 9: trades through the ETH router are logged with the real buyer, not tx.origin.
+    function test_audit9_ethRouterTradeLogsRealBuyer() public {
+        _buy(alice, 1_000e18);
+        address wallet = makeAddr("contractWallet");
+        vm.deal(wallet, 10 ether);
+        vm.expectEmit(true, true, false, false, address(hook));
+        emit CompanyHook.Trade(address(token), wallet, true, 0, 0, 0, 0);
+        vm.prank(wallet, alice); // msg.sender = wallet, tx.origin = alice
+        ethRouter.buyWithEth{value: 1 ether}(address(token), 0, block.timestamp);
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
@@ -757,9 +944,13 @@ contract CompanyTest is Test {
         for (uint256 s = 1; s <= 5; s++) {
             pending += token.pendingConvert(s);
         }
-        assertGe(imd.balanceOf(address(token)), token.owed(0) + pending, "IMD backed");
+        assertGe(imd.balanceOf(address(token)), token.owed(0) + pending + token.recycledHeld(0), "IMD backed");
         for (uint256 i; i < 6; i++) {
-            if (i > 0) assertGe(MockERC20(a[i]).balanceOf(address(token)), token.owed(i), "stock backed");
+            if (i > 0) {
+                assertGe(
+                    MockERC20(a[i]).balanceOf(address(token)), token.owed(i) + token.recycledHeld(i), "stock backed"
+                );
+            }
             uint256 sum;
             for (uint256 j; j < 3; j++) {
                 sum += token.withdrawableRewardOf(us[j], i);

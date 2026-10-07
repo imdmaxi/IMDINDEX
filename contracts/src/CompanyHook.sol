@@ -47,6 +47,7 @@ contract CompanyHook is IHooks, IUnlockCallback {
     error BadTick();
     error ZeroAddress();
     error HookNotAllowed();
+    error PartialFill();
 
     event PoolOpened(address indexed token, PoolId poolId, int24 startTick);
     /// @param quoteAmount IMD paid by the buyer / received by the seller, fee included
@@ -305,6 +306,11 @@ contract CompanyHook is IHooks, IUnlockCallback {
                 fee := tload(FEE_SLOT)
                 tstore(FEE_SLOT, 0)
             }
+            // beforeSwap charged the fee on the requested IMD amount. A swap that stops early (at a price limit or
+            // the end of liquidity) would overpay it, so only full fills are accepted (audit 78c00339, finding 3).
+            // Exact-in: the pool takes the request minus the fee. Exact-out: the pool pays the request plus the fee.
+            uint256 requested = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
+            if (exactIn ? poolQuote + fee != requested : poolQuote != requested + fee) revert PartialFill();
         } else {
             // IMD is the unspecified side. exact-in sell: 4% of the pool's output.
             // exact-out buy: 4% of what the buyer pays in total.
@@ -314,9 +320,13 @@ contract CompanyHook is IHooks, IUnlockCallback {
         }
 
         bool isBuy = params.zeroForOne == quoteIs0;
-        address trader = sender == router && hookData.length == 32 ? abi.decode(hookData, (address)) : tx.origin;
+        // Both routers pass the real user in hookData (audit 78c00339, finding 9); others are logged as tx.origin.
+        address trader = (sender == router || sender == ethRouter) && hookData.length == 32
+            ? abi.decode(hookData, (address))
+            : tx.origin;
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(key.toId());
-        emit Trade(t, trader, isBuy, isBuy ? poolQuote + fee : poolQuote - fee, tokenAmount, fee, sqrtPriceX96);
+        uint256 quoteAmount = isBuy ? poolQuote + fee : (poolQuote > fee ? poolQuote - fee : 0);
+        emit Trade(t, trader, isBuy, quoteAmount, tokenAmount, fee, sqrtPriceX96);
         return (IHooks.afterSwap.selector, hookDelta);
     }
 
