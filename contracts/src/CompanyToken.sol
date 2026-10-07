@@ -141,6 +141,9 @@ contract CompanyToken is IUnlockCallback {
     uint256 public constant DEAD_AFTER = 30 days;
 
     uint256 internal constant MAGNITUDE = 2 ** 128;
+    /// @dev Transient-storage seed: $COMPANY each address received from the PoolManager in this transaction (borrowed
+    ///      or just bought), which never counts toward its "recent" rewards (audit 882666b4, findings 1 and 2).
+    bytes32 internal constant FROM_POOL_SEED = keccak256("Company.receivedFromPool");
     uint256 internal constant Q96 = 2 ** 96;
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
 
@@ -198,8 +201,14 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Last successful conversion of each stock (deployment time before the first).
     uint256[ASSETS] public lastConvert;
 
-    /// @notice When the IMD/USDG pool was first seen with no liquidity at its price (0 while it has some).
+    /// @notice When the IMD/USDG pool was first seen without usable liquidity at its price (0 while it has some),
+    ///         and when that was last confirmed. The clock restarts if it isn't re-confirmed within a day, so a pool
+    ///         usable in between is never declared dead (audit 882666b4, finding 6).
     uint256 public imdPoolEmptySince;
+    uint256 public imdPoolLastSeenEmpty;
+    /// @notice Last time each price feed gave a usable answer: an unusable feed counts as dead only after
+    ///         DEAD_AFTER without one (audit 882666b4, finding 4).
+    mapping(address feed => uint256) public feedLastGood;
 
     /// @notice Last activity of each holder (unix seconds), see the contract notice.
     mapping(address => uint256) public lastActive;
@@ -253,6 +262,7 @@ contract CompanyToken is IUnlockCallback {
         usd = usd_;
         _checkFeed(usdFeed_);
         usdFeed = usdFeed_;
+        feedLastGood[usdFeed_] = block.timestamp;
         _usdUnit = 10 ** IPriceFeed(usd_).decimals();
 
         assets[0] = quote;
@@ -270,6 +280,7 @@ contract CompanyToken is IUnlockCallback {
             _checkPool(usd_, s, pools_[i]);
             _checkFeed(feeds_[i]);
             priceFeeds[i + 1] = feeds_[i];
+            feedLastGood[feeds_[i]] = block.timestamp;
             _unit[i + 1] = 10 ** IPriceFeed(s).decimals();
         }
 
@@ -384,6 +395,18 @@ contract CompanyToken is IUnlockCallback {
         // out of it to any address for free (audit 78c00339, finding 4); a real buy is recorded by the hook through
         // markActive instead.
         if (amount != 0) {
+            // Track tokens taken from the PoolManager in this transaction; they follow the tokens when forwarded and
+            // are cleared when returned.
+            if (from == poolManager) {
+                if (!toSystem) _setFromPool(to, _fromPool(to) + amount);
+            } else if (!fromSystem) {
+                uint256 tagged = _fromPool(from);
+                if (tagged != 0) {
+                    uint256 moved = tagged < amount ? tagged : amount;
+                    _setFromPool(from, tagged - moved);
+                    if (!toSystem) _setFromPool(to, _fromPool(to) + moved);
+                }
+            }
             if (!fromSystem) lastActive[from] = block.timestamp;
             if (!toSystem && (msg.sender == to || lastActive[to] == 0)) lastActive[to] = block.timestamp;
         }
@@ -543,9 +566,14 @@ contract CompanyToken is IUnlockCallback {
         if (w == 0) return 0;
         // Since `last` the weight can only have grown (every send records activity), so weight x (per-share
         // growth since the cutoff) is at least what it earned since the cutoff: "recent" can only be
-        // over-estimated, in the holder's favour. Rounded up as well.
+        // over-estimated, in the holder's favour. Rounded up as well. Tokens received from the PoolManager in this
+        // transaction (borrowed, or just bought) earned nothing yet and are left out, so a flash-borrowed balance
+        // can never inflate "recent" (audit 882666b4, findings 1 and 2).
         uint256 magCut = magAt(asset, block.timestamp - INACTIVITY_PERIOD - 1);
-        uint256 recent = FullMath.mulDivRoundingUp(magnifiedRewardPerShare[asset] - magCut, weightOf(holder), MAGNITUDE);
+        uint256 bal = balanceOf[holder];
+        uint256 tagged = _fromPool(holder);
+        uint256 weight = _weight(bal > tagged ? bal - tagged : 0);
+        uint256 recent = FullMath.mulDivRoundingUp(magnifiedRewardPerShare[asset] - magCut, weight, MAGNITUDE);
         return w > recent ? w - recent : 0;
     }
 
@@ -560,6 +588,20 @@ contract CompanyToken is IUnlockCallback {
     function recycleMany(address[] calldata holders) external {
         for (uint256 i; i < holders.length; i++) {
             if (!isSystemAccount(holders[i])) recycle(holders[i]);
+        }
+    }
+
+    function _fromPool(address account) internal view returns (uint256 v) {
+        bytes32 slot = keccak256(abi.encode(FROM_POOL_SEED, account));
+        assembly ("memory-safe") {
+            v := tload(slot)
+        }
+    }
+
+    function _setFromPool(address account, uint256 v) internal {
+        bytes32 slot = keccak256(abi.encode(FROM_POOL_SEED, account));
+        assembly ("memory-safe") {
+            tstore(slot, v)
         }
     }
 
@@ -629,12 +671,17 @@ contract CompanyToken is IUnlockCallback {
     function _convertAll() internal returns (uint256[ASSETS] memory stockOut) {
         // Inside someone else's unlock the swaps can't run (and the pool could be mid-manipulation): skip.
         if (IPoolManager(poolManager).isUnlocked()) return stockOut;
-        uint256 cap = maxConvert() / (ASSETS - 1);
-        // No IMD/USDG liquidity at its price: nothing can be bought. Wait, but not forever (audit 363ab052,
-        // finding 3): after DEAD_AFTER every stock's rounds are paid to holders as IMD.
+        uint256 roundCap = maxConvert();
+        uint256 cap = roundCap / (ASSETS - 1);
+        // No usable IMD/USDG liquidity at its price (below 1% of a full round, so a dust position doesn't count:
+        // audit 882666b4, finding 3): nothing can be bought. Wait, but not forever (audit 363ab052, finding 3): after
+        // DEAD_AFTER of confirmed emptiness every stock's rounds are paid to holders as IMD.
         bool imdPoolDead;
-        if (cap == 0) {
-            if (imdPoolEmptySince == 0) imdPoolEmptySince = block.timestamp;
+        if (roundCap < MAX_ROUND_IMD / 100) {
+            if (imdPoolEmptySince == 0 || block.timestamp > imdPoolLastSeenEmpty + 1 days) {
+                imdPoolEmptySince = block.timestamp;
+            }
+            imdPoolLastSeenEmpty = block.timestamp;
             if (block.timestamp <= imdPoolEmptySince + DEAD_AFTER) return stockOut;
             imdPoolDead = true;
             cap = MAX_ROUND_IMD / (ASSETS - 1);
@@ -665,6 +712,8 @@ contract CompanyToken is IUnlockCallback {
                 if (_feedsDead(a)) _fallBackToImd(a, imdIn);
                 continue;
             }
+            feedLastGood[usdFeed] = block.timestamp;
+            feedLastGood[priceFeeds[a]] = block.timestamp;
             // Too little gas for a full CONVERT_GAS: skip the stock, never fall back, so a low-gas caller can't turn
             // stock into IMD and a claim never fails on it (audit f1d5def3, finding 3).
             if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) continue;
@@ -815,15 +864,20 @@ contract CompanyToken is IUnlockCallback {
         return (true, uint256(answer));
     }
 
-    /// @dev Seconds since the feed's last update; max when the feed is unusable (reverts, no data, answer <= 0).
+    /// @dev Seconds since the feed's last update. For a feed that is unusable right now (reverts, no data,
+    ///      answer <= 0), seconds since it last gave a usable answer here (`feedLastGood`).
     function _feedAge(address feed) internal view returns (uint256) {
         (bool success, bytes memory ret) = feed.staticcall(abi.encodeWithSelector(IPriceFeed.latestRoundData.selector));
-        if (!success || ret.length < 160) return type(uint256).max;
+        if (!success || ret.length < 160) return _sinceGood(feed);
         (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
-        if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp) {
-            return answer <= 0 || updatedAt == 0 ? type(uint256).max : 0;
-        }
+        if (answer <= 0 || updatedAt == 0) return _sinceGood(feed);
+        if (updatedAt > block.timestamp) return 0;
         return block.timestamp - updatedAt;
+    }
+
+    function _sinceGood(address feed) internal view returns (uint256) {
+        uint256 good = feedLastGood[feed];
+        return good == 0 ? type(uint256).max : block.timestamp - good;
     }
 
     function _checkFeed(address feed) internal view {

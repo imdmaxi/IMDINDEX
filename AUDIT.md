@@ -73,9 +73,20 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 6 | Info: GME's 1% fee eats most of the 3% tolerance | The pool's own fee is removed from the Chainlink-implied amount before the 3% tolerance. `test_final6_poolFeeExcludedFromTolerance`. |
 | 7 | Info: a separate hookless $COMPANY pool pays no fee | Inherent (the token has no transfer restrictions, which the scanners require). Documentation corrected: the fee applies to swaps in the hook's pool, which holds all the locked liquidity. |
 
-## 7. Known and accepted
+## 7. Resolved: IMD Swarm final check 2 882666b4 (on commit 331230c)
 
-- **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variant is closed (claim and recycle refuse to run mid-unlock).
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | High: a send while holding flash-borrowed pool tokens revives expired rewards (live weight in `_forfeit`) | Root cause fixed: tokens an address received from the PoolManager in the current transaction (tracked in transient storage, moved when forwarded, cleared when returned) are left out of the weight used for "recent" rewards, so a borrowed balance never counts. No external call in transfers. `test_final2_1_flashBorrowThenSend_stillForfeits` (fails without the fix with the report's 0.6 IMD). |
+| 2 | High: `markActive(tx.origin)` inside the swapper's own unlock after borrowing pool tokens | Closed by the same root-cause fix (`markActive` forfeits with the borrow-proof weight). `test_final2_2_flashBorrowThenDustBuy_stillForfeits`. |
+| 3 | Medium: a dust IMD/USDG position keeps `maxConvert()` above 0 and stops the 30-day fallback | The pool counts as empty while `maxConvert()` < 1% of a full round (0.2 IMD). `test_final2_3_dustImdPoolStillCountsAsEmpty`. |
+| 4 | Low: a feed unusable for one round is treated as dead at once | `feedLastGood` records the last usable answer; an unusable feed is dead only after `DEAD_AFTER` without one. `test_final2_4_unusableFeedHoldsUntilDeadAfter`. |
+| 5 | Info: a contract wallet's buy through another router credits tx.origin | Documented (README): only the buyer our routers report, or the signing wallet, gets buy activity; contract wallets should claim, sell or send, or buy through the site. |
+| 6 | Info: emptiness seen twice 30 days apart triggers the fallback | The empty clock restarts unless emptiness is re-confirmed within a day (`imdPoolLastSeenEmpty`). `test_final2_6_emptinessMustBeConfirmed`. |
+
+## 8. Known and accepted
+
+- **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variants are closed: claim and recycle refuse to run mid-unlock, and tokens received from the PoolManager in the current transaction never count toward "recent" rewards.
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.
 - The IMD → USDG hop has no oracle (IMD has no Chainlink feed); it rests on the 20 IMD round ceiling and the IMD/USDG pool's depth. The stock hop is checked against Chainlink. Fixed routes and feeds can't be changed after deployment.
 - Within the 3% oracle tolerance (after the pool fee), a sandwich of a thin stock pool can skim at most about 3% of that stock's round.

@@ -12,6 +12,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {PoolId} from "v4-core/src/types/PoolId.sol";
+import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {SwapParams, ModifyLiquidityParams} from "v4-core/src/types/PoolOperation.sol";
 
@@ -23,6 +24,55 @@ import {DeployLib} from "../script/DeployLib.sol";
 import {MockERC20, MockStock, MockFeed} from "./Mocks.sol";
 
 /// @notice Borrows the pool's $COMPANY inside an unlock, then tries to distribute, convert or claim with it.
+/// @notice Audit 882666b4 findings 1 and 2: borrows the pool's $COMPANY into `victim` inside an unlock, then has
+///         the victim "send" (mode 1) or makes a dust buy for it (mode 2, tx.origin = victim), then repays.
+contract FlashReviver is IUnlockCallback {
+    IPoolManager immutable pm;
+    CompanyToken immutable t;
+    CompanyHook immutable h;
+    address immutable imdToken;
+    address victim;
+    uint8 mode;
+
+    constructor(IPoolManager pm_, CompanyToken t_, CompanyHook h_, address imd_) {
+        pm = pm_;
+        t = t_;
+        h = h_;
+        imdToken = imd_;
+    }
+
+    function run(address v, uint8 m) external {
+        victim = v;
+        mode = m;
+        pm.unlock("");
+    }
+
+    function unlockCallback(bytes calldata) external returns (bytes memory) {
+        Currency company = Currency.wrap(address(t));
+        uint256 borrowed = t.balanceOf(address(pm));
+        pm.take(company, victim, borrowed);
+        uint256 bought;
+        if (mode == 2) {
+            PoolKey memory k = h.poolKey(address(t));
+            bool imdIs0 = Currency.unwrap(k.currency0) == imdToken;
+            BalanceDelta d = pm.swap(
+                k, SwapParams(imdIs0, -1e15, imdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1), ""
+            );
+            int128 out = imdIs0 ? d.amount1() : d.amount0();
+            bought = uint256(int256(out));
+            pm.sync(Currency.wrap(imdToken));
+            MockERC20(imdToken).transfer(address(pm), 1e15);
+            pm.settle();
+        }
+        // repay the borrowed tokens from the victim's wallet (a send by the victim's allowance)
+        pm.sync(company);
+        t.transferFrom(victim, address(pm), borrowed);
+        pm.settle();
+        if (bought != 0) pm.take(company, victim, bought);
+        return "";
+    }
+}
+
 /// @notice Audit finding 4: moves 1 wei of $COMPANY out of the PoolManager to `victim`, repaid from its own balance.
 contract TimerPinger is IUnlockCallback {
     IPoolManager immutable pm;
@@ -1024,7 +1074,13 @@ contract CompanyTest is Test {
         token.convert();
         assertEq(token.imdPoolEmptySince(), block.timestamp);
         assertEq(token.pendingConvert(1), 6e18, "waits at first");
-        vm.warp(block.timestamp + 31 days);
+        // still empty when checked each day (any claim checks it)
+        for (uint256 d; d < 30; d++) {
+            vm.warp(block.timestamp + 1 days);
+            token.convert();
+            assertEq(token.pendingConvert(1), 6e18, "waits until 30 days of confirmed emptiness");
+        }
+        vm.warp(block.timestamp + 1 days);
         _refreshFeedsExcept(99);
         uint256 owedImd = token.owed(0);
         token.convert();
@@ -1062,6 +1118,95 @@ contract CompanyTest is Test {
         for (uint256 i; i < 5; i++) {
             if (i != skip) feeds[i].set(1e8, block.timestamp);
         }
+    }
+
+    // ------------------------------------------------------------ IMD Swarm final check 2 882666b4
+
+    function _expiredSetup() internal returns (uint256 expired) {
+        _buy(alice, 20e18);
+        _buy(bob, 20e18);
+        vm.warp(block.timestamp + 8 days);
+        _buy(bob, 10e18);
+        expired = token.expiredRewardsOf(alice, 0);
+        assertGt(expired, 0);
+    }
+
+    /// @dev Finding 1 (high): a send while holding flash-borrowed pool tokens still forfeits what expired.
+    function test_final2_1_flashBorrowThenSend_stillForfeits() public {
+        uint256 expired = _expiredSetup();
+        FlashReviver f = new FlashReviver(IPoolManager(address(pm)), token, hook, address(imd));
+        vm.prank(alice);
+        token.approve(address(f), type(uint256).max); // approving is not activity
+        f.run(alice, 1);
+        assertEq(token.recycledHeld(0), expired, "expired rewards forfeited despite the borrowed balance");
+    }
+
+    /// @dev Finding 2 (high): a dust buy while holding flash-borrowed pool tokens still forfeits what expired.
+    function test_final2_2_flashBorrowThenDustBuy_stillForfeits() public {
+        uint256 expired = _expiredSetup();
+        FlashReviver f = new FlashReviver(IPoolManager(address(pm)), token, hook, address(imd));
+        imd.mint(address(f), 1e18);
+        vm.prank(alice);
+        token.approve(address(f), type(uint256).max);
+        vm.prank(alice, alice); // tx.origin = alice: the hook records her as the buyer
+        f.run(alice, 2);
+        assertEq(token.lastActive(alice), block.timestamp, "the buy made her active");
+        assertEq(token.recycledHeld(0), expired, "but only after forfeiting what had expired");
+    }
+
+    /// @dev Finding 3 (medium): a dust IMD/USDG position no longer stops the 30-day fallback.
+    function test_final2_3_dustImdPoolStillCountsAsEmpty() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, 10_000, 0), "");
+        assertGt(token.maxConvert(), 0);
+        for (uint256 d; d < 32; d++) {
+            vm.warp(block.timestamp + 1 days);
+            _refreshFeedsExcept(99);
+            token.convert();
+        }
+        assertGt(token.imdPoolEmptySince(), 0, "dust counted as empty");
+        assertLt(token.pendingConvert(1), 6e18, "rounds paid as IMD after 30 days");
+    }
+
+    /// @dev Finding 4 (low): a feed that answers 0 (or reverts) for a while holds the stock; it isn't dead at once.
+    function test_final2_4_unusableFeedHoldsUntilDeadAfter() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert(); // a good read: feedLastGood is now
+        _buy(bob, 1_000e18);
+        uint256 pending = token.pendingConvert(1);
+        vm.warp(block.timestamp + 1 minutes);
+        feeds[0].set(0, block.timestamp);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), pending, "held, not paid as IMD");
+        assertEq(token.owed(0) >= owedImd, true);
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(0);
+        token.convert();
+        assertLt(token.pendingConvert(1), pending, "dead after 30 days without a usable answer");
+    }
+
+    /// @dev Finding 6 (info): emptiness seen twice 30 days apart, with liquidity in between, doesn't count.
+    function test_final2_6_emptinessMustBeConfirmed() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        vm.warp(block.timestamp + 1 minutes);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        token.convert();
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, 10_000e18, 0), "");
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(99);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.owed(0), owedImd, "no fallback: the clock restarted");
+        assertEq(token.imdPoolEmptySince(), block.timestamp);
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
