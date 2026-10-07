@@ -116,10 +116,7 @@ p { margin: 0; }
   box-shadow: var(--shadow); transition: max-width .35s ease, padding .35s ease;
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-.logo { width: 16px; height: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; flex: none; }
-.logo i { background: var(--ink); border-radius: 1px; }
-.logo i:nth-child(2) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); border-radius: 50%; }
-.logo i:nth-child(3) { opacity: .45; }
+.logo-img { width: 22px; height: 22px; display: block; flex: none; border-radius: 5px; }
 .links { display: flex; gap: 2px; margin-left: 18px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .links a { text-decoration: none; padding: 9px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); white-space: nowrap; border-radius: 8px; }
 .links a:hover { color: var(--ink); }
@@ -307,7 +304,7 @@ footer p { max-width: 95ch; }
 <div class="navbar" id="navbar">
   <header class="nav" id="nav">
     <a class="brand" href="#home" aria-label="The Zero Person Billion Dollar Company, home">
-      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <img class="logo-img" src="/logo.svg" width="22" height="22" alt="" />
       <span class="full">The Zero Person Billion Dollar Company</span>
       <span class="short">$COMPANY</span>
     </a>
@@ -340,7 +337,7 @@ footer p { max-width: 95ch; }
         </div>
         <div class="mock rise d2" aria-label="Dashboard preview">
           <div class="mock-top">
-            <span class="brand" style="font-size:11px"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>The Company</span>
+            <span class="brand" style="font-size:11px"><img class="logo-img" src="/logo.svg" width="22" height="22" alt="" />The Company</span>
             <span class="pill warn" id="mk-tag">Example</span>
           </div>
           <div class="mock-total">
