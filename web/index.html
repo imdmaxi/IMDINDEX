@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src https: wss:; base-uri 'none'; form-action 'none'; object-src 'none'" />
+<meta name="description" content="Hold $COMPANY and get paid in stocks. Every trade pays 3% to holders: half in IMD, half in NVDA, GOOGL, AAPL, AMC and MSTR." />
+<title>The Zero Person Billion Dollar Company</title>
+<script>
+  // Apply the saved day/night choice before first paint (no flash).
+  try { var t = localStorage.getItem("company-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" />
+<style>
+/* Layout: full-bleed gradient sky behind each page's opening, warm paper below; frosted nav that shrinks to a pill on scroll. Day = dusk sky, night = deep navy with an ember glow. */
+:root {
+  --paper: #edece8;
+  --card: #ffffff;
+  --card-2: #f6f5f2;
+  --ink: #191918;
+  --muted: #6d6b66;
+  --line: #dddbd5;
+  --btn: #191918;
+  --btn-ink: #ffffff;
+  --nav: rgba(255, 255, 255, 0.86);
+  --good: #23784f;
+  --good-soft: #dcefe4;
+  --warn: #93590f;
+  --warn-soft: #f5e8d3;
+  --bad: #b0332b;
+  --sky-ink: #ffffff;
+  --sky-1: #4f7bc4;
+  --sky-2: #8aa6d8;
+  --sky-3: #e7b9a3;
+  --sky-4: #c9cfe6;
+  --demo: #191918;
+  --demo-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(25, 25, 24, 0.05), 0 10px 30px rgba(25, 25, 24, 0.07);
+  --lift: 0 30px 60px rgba(20, 30, 60, 0.25), 0 8px 18px rgba(20, 30, 60, 0.15);
+  --font: "Instrument Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111214; --card: #1a1b1e; --card-2: #151619; --ink: #ecebe7; --muted: #9b9a95; --line: #2a2b2f;
+    --btn: #ecebe7; --btn-ink: #111214; --nav: rgba(26, 27, 30, 0.82);
+    --good: #6fd29e; --good-soft: #17291f; --warn: #e4a95c; --warn-soft: #2b2216; --bad: #f08077;
+    --sky-1: #0b1530; --sky-2: #1d2f5e; --sky-3: #7a3f2c; --sky-4: #2a2350;
+    --demo: #0d0e10; --demo-ink: #ecebe7;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+    --lift: 0 30px 60px rgba(0, 0, 0, 0.55), 0 8px 18px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111214; --card: #1a1b1e; --card-2: #151619; --ink: #ecebe7; --muted: #9b9a95; --line: #2a2b2f;
+  --btn: #ecebe7; --btn-ink: #111214; --nav: rgba(26, 27, 30, 0.82);
+  --good: #6fd29e; --good-soft: #17291f; --warn: #e4a95c; --warn-soft: #2b2216; --bad: #f08077;
+  --sky-1: #0b1530; --sky-2: #1d2f5e; --sky-3: #7a3f2c; --sky-4: #2a2350;
+  --demo: #0d0e10; --demo-ink: #ecebe7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.3);
+  --lift: 0 30px 60px rgba(0, 0, 0, 0.55), 0 8px 18px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.55 var(--font); -webkit-font-smoothing: antialiased; transition: background-color .3s ease; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.wrap { max-width: 1180px; margin-inline: auto; padding-inline: 20px; }
+.num { font-variant-numeric: tabular-nums; }
+.caps { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+h1, h2, h3 { font-weight: 500; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(40px, 5.4vw, 64px); line-height: 1.02; }
+h2 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; }
+h3 { font-size: 20px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+
+/* ---------- sky (gradient hero band) */
+.sky {
+  position: relative; color: var(--sky-ink); overflow: hidden;
+  background:
+    radial-gradient(60% 80% at 92% 18%, var(--sky-3), transparent 62%),
+    radial-gradient(55% 70% at 8% 100%, var(--sky-4), transparent 70%),
+    radial-gradient(80% 90% at 30% 10%, var(--sky-2), transparent 70%),
+    var(--sky-1);
+  transition: background .4s ease;
+}
+.sky::after { /* fine grain so the gradient reads like a photo, not a flat fill */
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .18; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.sky > * { position: relative; z-index: 1; }
+.sky .eyebrow { color: rgba(255, 255, 255, 0.8); }
+.page-sky { padding-block: 150px 70px; }
+.page-sky .wrap { display: grid; gap: 14px; }
+.page-sky p { color: rgba(255, 255, 255, 0.85); max-width: 56ch; }
+
+/* ---------- nav */
+.navbar { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 18px); left: 0; right: 0; z-index: 20; pointer-events: none; }
+.nav {
+  pointer-events: auto; margin-inline: auto; max-width: 1140px; width: calc(100% - 40px);
+  display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 18px; border-radius: 12px;
+  background: var(--nav); color: var(--ink); backdrop-filter: blur(16px) saturate(1.5); -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow: var(--shadow); transition: max-width .35s ease, padding .35s ease;
+}
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.logo { width: 16px; height: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; flex: none; }
+.logo i { background: var(--ink); border-radius: 1px; }
+.logo i:nth-child(2) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); border-radius: 50%; }
+.logo i:nth-child(3) { opacity: .45; }
+.links { display: flex; gap: 2px; margin-left: 18px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.links a { text-decoration: none; padding: 9px 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); white-space: nowrap; border-radius: 8px; }
+.links a:hover { color: var(--ink); }
+.links a[aria-current="page"] { color: var(--ink); }
+.icon-btn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; cursor: pointer; color: var(--ink); flex: none; }
+.icon-btn:hover { background: var(--card-2); }
+.icon-btn svg { width: 18px; height: 18px; }
+.connect { border: 0; cursor: pointer; padding: 12px 18px; border-radius: 9px; background: var(--card-2); font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
+.connect:hover { background: var(--line); }
+/* compact pill after scrolling */
+.navbar.compact .nav { max-width: 230px; padding: 10px 16px; justify-content: center; cursor: pointer; }
+.navbar.compact .links, .navbar.compact .connect, .navbar.compact .icon-btn { display: none; }
+@media (max-width: 820px) {
+  .nav { flex-wrap: wrap; padding: 8px 8px 8px 14px; }
+  .links { order: 3; flex-basis: 100%; margin-left: 0; }
+  .brand .full { display: none; }
+  .connect { margin-left: auto; }
+}
+@media (min-width: 821px) { .brand .short { display: none; } }
+
+/* ---------- buttons */
+.btn { display: inline-flex; align-items: center; gap: 12px; padding: 16px 24px; border-radius: 8px; border: 0; cursor: pointer; text-decoration: none; white-space: nowrap; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; background: var(--btn); color: var(--btn-ink); transition: transform .15s ease, opacity .15s ease; }
+.btn:hover { transform: translateY(-1px); }
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn.glass { background: rgba(255, 255, 255, 0.16); color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+.btn.on-sky { background: #191918; color: #fff; }
+.btn.outline { background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.btn.block { width: 100%; justify-content: center; }
+
+/* ---------- home hero */
+.hero { min-height: 640px; display: grid; align-items: center; padding-block: 130px 80px; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: center; }
+.hero-copy { display: grid; gap: 22px; }
+.hero-copy p { font-size: 17px; color: rgba(255, 255, 255, 0.88); max-width: 40ch; }
+.cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 960px) { .hero .wrap { grid-template-columns: minmax(0, 1fr); } .hero { min-height: 0; } }
+
+/* app mockup in the hero */
+.mock { background: var(--card); color: var(--ink); border-radius: 12px; box-shadow: var(--lift); transform: rotate(-1.6deg); padding: 16px; display: grid; gap: 14px; }
+@media (prefers-reduced-motion: no-preference) { .mock { transition: transform .5s ease; } .mock:hover { transform: rotate(0deg); } }
+.mock-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mock-total { text-align: center; display: grid; gap: 2px; padding-block: 4px 10px; border-bottom: 1px solid var(--line); }
+.mock-total .big { font-size: clamp(30px, 4vw, 42px); font-weight: 600; letter-spacing: -0.02em; }
+.mock-pair { display: grid; grid-template-columns: 1fr 1fr; text-align: center; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.mock-pair > div + div { border-left: 1px solid var(--line); }
+.mock-pair b { font-size: 21px; font-weight: 600; display: block; }
+.tiny { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.bars { display: flex; align-items: end; gap: 5px; height: 60px; }
+.bars i { flex: 1; background: var(--ink); border-radius: 2px 2px 0 0; min-height: 4px; }
+.mock-bottom { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; }
+.latest { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; }
+.latest-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lchip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 6px; font-size: 12px; font-weight: 700; min-width: 0; }
+.lchip .r { margin-left: auto; text-align: right; line-height: 1.15; font-size: 11px; }
+.lchip .r small { display: block; color: var(--muted); font-weight: 500; }
+.demo { background: var(--demo); color: var(--demo-ink); border-radius: 8px; padding: 12px; display: grid; gap: 10px; align-content: start; transform: rotate(1.2deg); }
+.demo .tiny { color: rgba(255, 255, 255, 0.6); }
+.demo b { font-size: 22px; font-weight: 600; display: block; line-height: 1.1; }
+.demo-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid rgba(255, 255, 255, 0.14); padding-top: 8px; }
+.demo-row b { font-size: 14px; }
+.mini-logos { display: flex; gap: 4px; flex-wrap: wrap; }
+@media (max-width: 520px) { .mock-bottom { grid-template-columns: minmax(0, 1fr); } .mock { transform: none; } .demo { transform: none; } }
+
+/* monogram tiles stand in for logos */
+.mono { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; flex: none; font-size: 10px; font-weight: 700; letter-spacing: -0.01em; color: #fff; background: var(--tile, #191918); overflow: hidden; }
+.mono.sm { width: 20px; height: 20px; border-radius: 4px; font-size: 10px; }
+.mono.xs { width: 24px; height: 24px; border-radius: 5px; font-size: 11px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+
+/* ---------- sections */
+main { display: grid; }
+.section { padding-block: 90px 0; display: grid; gap: 34px; }
+.center-head { text-align: center; display: grid; gap: 12px; justify-items: center; }
+.center-head h2 { max-width: 22ch; }
+.side-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 30px; }
+.side-head p { color: var(--muted); max-width: 46ch; text-align: right; font-size: 14px; }
+@media (max-width: 700px) { .side-head p { text-align: left; } }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 40px 24px; text-align: center; }
+.metrics > div { display: grid; gap: 6px; justify-items: center; }
+.metrics .v { font-size: clamp(30px, 3.6vw, 44px); font-weight: 500; letter-spacing: -0.03em; }
+.metrics .caps { font-size: 11px; }
+.metrics p { font-size: 13px; color: var(--muted); max-width: 24ch; }
+@media (max-width: 860px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.grid { display: grid; gap: 14px; }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 900px) { .g3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .g3, .g2 { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--card); border-radius: 8px; padding: 22px; min-width: 0; box-shadow: var(--shadow); transition: background-color .3s ease; }
+.stock { display: grid; gap: 16px; }
+.stock-top { display: flex; align-items: center; gap: 12px; }
+.stock-top b { display: block; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+.stock-top span { font-size: 13px; color: var(--muted); }
+.stock-top .share { margin-left: auto; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 8px; border-radius: 6px; background: var(--card-2); color: var(--muted); white-space: nowrap; }
+.stock-foot { display: flex; align-items: end; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.stock-foot .price { font-size: 19px; font-weight: 600; }
+.stock-foot a { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none; }
+.stock-foot a:hover { text-decoration: underline; }
+.note-card { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.split { display: flex; height: 54px; border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); }
+.split > div { display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; min-width: 0; overflow: hidden; }
+.split .s-imd { flex: 50; background: var(--btn); color: var(--btn-ink); }
+.split .s-stk { flex: 10; background: var(--card); color: var(--ink); border-left: 1px solid var(--line); }
+.steps .step { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; }
+.step .n { font-size: 40px; font-weight: 400; line-height: 1; color: var(--muted); opacity: .55; letter-spacing: -0.03em; }
+.step p { color: var(--muted); font-size: 14px; margin-top: 6px; }
+.tag { display: inline-block; margin-top: 14px; padding: 5px 9px; border-radius: 6px; background: var(--card-2); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; }
+.closer { margin-block: 100px 0; padding: 70px 20px; text-align: center; display: grid; gap: 22px; justify-items: center; border-radius: 0; }
+.closer h2 { color: #fff; }
+
+/* pills & notices */
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; background: var(--card-2); color: var(--muted); white-space: nowrap; }
+.pill.live { background: var(--good-soft); color: var(--good); }
+.pill.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.notice { padding: 14px 16px; border-radius: 8px; font-size: 14px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+.status { font-size: 13px; color: var(--muted); min-height: 1.5em; overflow-wrap: anywhere; }
+.status.err { color: var(--bad); }
+.status.ok { color: var(--good); }
+
+/* ---------- swap */
+.overlap { margin-top: -40px; position: relative; z-index: 2; }
+.swap-wrap { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .swap-wrap { grid-template-columns: minmax(0, 1fr); } }
+.seg { display: inline-flex; padding: 4px; border-radius: 9px; background: var(--card-2); }
+.seg button { border: 0; background: transparent; padding: 8px 16px; border-radius: 7px; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.field { display: grid; gap: 8px; padding: 16px; border-radius: 8px; background: var(--card-2); }
+.field-row { display: flex; align-items: center; gap: 10px; }
+.field input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; outline: none; padding: 0; font-variant-numeric: tabular-nums; }
+.field select, .tokenbox { border: 0; padding: 9px 12px; border-radius: 8px; background: var(--card); box-shadow: var(--shadow); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap; }
+.field select { cursor: pointer; }
+.kv { display: grid; gap: 8px; font-size: 14px; margin: 0; }
+.kv > div { display: flex; justify-content: space-between; gap: 12px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; }
+
+/* ---------- portfolio */
+.big-metric { display: grid; gap: 8px; }
+.big-metric .v { font-size: 34px; font-weight: 500; letter-spacing: -0.02em; }
+.big-metric p { font-size: 13px; color: var(--muted); }
+.meter { height: 6px; border-radius: 9px; background: var(--card-2); overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--ink); border-radius: 9px; }
+.table-scroll { overflow-x: auto; }
+.rtable { width: 100%; border-collapse: collapse; font-size: 15px; }
+.rtable th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 0 0 12px; }
+.rtable td { padding: 14px 0; border-top: 1px solid var(--line); }
+.rtable td:not(:first-child), .rtable th:not(:first-child) { text-align: right; }
+.asset-cell { display: flex; align-items: center; gap: 12px; }
+.asset-cell span { color: var(--muted); font-size: 13px; }
+
+/* ---------- docs */
+.process .step { min-height: 170px; }
+table.plain { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.plain th, table.plain td { text-align: left; padding: 13px 14px 13px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.plain th { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.addr { font-size: 13px; font-family: ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+.addr a { text-decoration: none; }
+.addr a:hover { text-decoration: underline; }
+.prose { display: grid; gap: 12px; }
+.prose p, .prose li { color: var(--muted); max-width: 70ch; }
+.prose ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.prose strong { color: var(--ink); font-weight: 600; }
+.faq details { border-bottom: 1px solid var(--line); padding: 18px 0; }
+.faq summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; font-weight: 600; font-size: 17px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: ""; width: 10px; height: 10px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin-top: 4px; flex: none; transition: transform .2s ease; }
+.faq details[open] summary::after { transform: rotate(-135deg); margin-top: 9px; }
+.faq details p { margin-top: 10px; color: var(--muted); max-width: 70ch; }
+
+footer { margin-top: 0; padding-block: 34px 50px; border-top: 1px solid var(--line); }
+footer .wrap { display: grid; gap: 10px; font-size: 13px; color: var(--muted); }
+footer p { max-width: 95ch; }
+
+.view { display: none; }
+.view.on { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .view.on .rise { animation: rise .5s ease both; }
+  .view.on .rise.d2 { animation-delay: .08s; }
+  @keyframes rise { from { opacity: .3; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+}
+</style>
+</head>
+<body>
+
+<div class="navbar" id="navbar">
+  <header class="nav" id="nav">
+    <a class="brand" href="#home" aria-label="The Zero Person Billion Dollar Company, home">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="full">The Zero Person Billion Dollar Company</span>
+      <span class="short">$COMPANY</span>
+    </a>
+    <nav class="links" aria-label="Pages">
+      <a href="#home" data-route="home">Home</a>
+      <a href="#swap" data-route="swap">Swap</a>
+      <a href="#portfolio" data-route="portfolio">Portfolio</a>
+      <a href="#docs" data-route="docs">Docs</a>
+    </nav>
+    <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch to night mode" title="Day / night">
+      <svg id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" hidden><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="connect" id="connect" type="button">Connect</button>
+  </header>
+</div>
+
+<main>
+  <!-- ============================================================ HOME -->
+  <div class="view" id="view-home">
+    <section class="sky hero">
+      <div class="wrap">
+        <div class="hero-copy rise">
+          <h1>Hold the company.<br />Earn stocks.</h1>
+          <p>A 3% fee on every $COMPANY trade pays holders: half in IMD, half in NVDA, GOOGL, AAPL, AMC and MSTR.</p>
+          <div class="cta-row">
+            <a class="btn on-sky" href="#swap">Buy $COMPANY <span aria-hidden="true">→</span></a>
+            <a class="btn glass" href="#docs">How it works</a>
+          </div>
+        </div>
+        <div class="mock rise d2" aria-label="Dashboard preview">
+          <div class="mock-top">
+            <span class="brand" style="font-size:11px"><span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>The Company</span>
+            <span class="pill warn" id="mk-tag">Example</span>
+          </div>
+          <div class="mock-total">
+            <span class="tiny">Total value paid to holders</span>
+            <span class="big num" id="mk-total">$1,284,906.12</span>
+          </div>
+          <div class="mock-pair">
+            <div><span class="tiny">Fees collected</span><b class="num" id="mk-fees">42,817 IMD</b></div>
+            <div><span class="tiny">Employees</span><b class="num">0</b></div>
+          </div>
+          <div style="display:grid;gap:8px">
+            <div style="display:flex;justify-content:space-between"><span class="tiny">Paid to holders, by week</span><span class="tiny num" id="mk-total-2">$1,284,906</span></div>
+            <div class="bars" id="mk-bars" aria-hidden="true"></div>
+          </div>
+          <div class="mock-bottom">
+            <div class="latest">
+              <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13px">Latest conversion</b><span class="tiny">5 stocks</span></div>
+              <div class="latest-grid" id="mk-latest"></div>
+            </div>
+            <div class="demo">
+              <span class="tiny" style="color:inherit;opacity:.65">Example wallet</span>
+              <div><span class="tiny" style="color:inherit;opacity:.65">Balance</span><b class="num">4,835,239</b><span class="tiny" style="color:inherit;opacity:.65">$COMPANY</span></div>
+              <div class="demo-row">
+                <div><span class="tiny" style="color:inherit;opacity:.65">Share</span><b class="num">0.48%</b></div>
+                <div><span class="tiny" style="color:inherit;opacity:.65">Earned</span><b class="num" id="mk-earned">$6,170</b></div>
+              </div>
+              <div class="mini-logos" id="mk-logos"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <section class="section">
+        <div class="center-head">
+          <span class="eyebrow">/ Company metrics /</span>
+          <h2>Company metrics.<br />Read from the contracts and pools.</h2>
+        </div>
+        <div class="metrics">
+          <div><span class="v num" id="m-price">—</span><span class="caps">$COMPANY price</span><p>From the COMPANY/IMD pool.</p></div>
+          <div><span class="v num" id="m-mcap">—</span><span class="caps">Market cap</span><p>1,000,000,000 supply, fully diluted.</p></div>
+          <div><span class="v num" id="m-paid">—</span><span class="caps">IMD paid out</span><p>Credited to holders, all time.</p></div>
+          <div><span class="v num" id="m-eligible">—</span><span class="caps">Earning supply</span><p>Held by wallets with 100,000+ $COMPANY.</p></div>
+        </div>
+        <div style="display:flex;justify-content:center"><span class="pill" id="metrics-pill">Live after launch</span></div>
+      </section>
+
+      <section class="section">
+        <div class="side-head">
+          <h2>Where the 3% goes</h2>
+          <p>The hook takes 4% of every swap. 1% runs the protocol and 3% belongs to holders, split like this.</p>
+        </div>
+        <div class="split" role="img" aria-label="Holder fee split: 50% IMD, 10% each NVDA, GOOGL, AAPL, AMC, MSTR">
+          <div class="s-imd">IMD · 50%</div><div class="s-stk">NVDA</div><div class="s-stk">GOOGL</div><div class="s-stk">AAPL</div><div class="s-stk">AMC</div><div class="s-stk">MSTR</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="side-head">
+          <div style="display:grid;gap:10px"><h2>Supported assets</h2><span><span class="pill" id="price-pill">Prices loading</span></span></div>
+          <p>IMD is credited at once. Each stock gets 10%, bought from its Uniswap pool when anyone claims. Prices come from each asset's pool.</p>
+        </div>
+        <div class="grid g3" id="basket"></div>
+      </section>
+
+      <section class="section">
+        <div class="side-head"><h2>How it works</h2><p>Four steps, all on-chain. No one runs it.</p></div>
+        <div class="grid g2 steps" id="home-steps"></div>
+      </section>
+    </div>
+
+    <section class="sky closer">
+      <h2>Stocks earned by $COMPANY holders.</h2>
+      <a class="btn on-sky" href="#swap">Buy $COMPANY <span aria-hidden="true">→</span></a>
+    </section>
+  </div>
+
+  <!-- ============================================================ SWAP -->
+  <div class="view" id="view-swap">
+    <section class="sky page-sky">
+      <div class="wrap rise"><span class="eyebrow">/ Swap /</span><h1>Buy or sell<br />$COMPANY.</h1><p>Swaps include the 4% fee: 3% goes to holders, 1% to the protocol.</p></div>
+    </section>
+    <div class="wrap overlap">
+      <div class="swap-wrap">
+        <form class="card" id="swap-form" style="display:grid;gap:14px;box-shadow:var(--lift)" novalidate>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div class="seg" role="group" aria-label="Direction">
+              <button type="button" id="dir-buy" aria-pressed="true">Buy</button>
+              <button type="button" id="dir-sell" aria-pressed="false">Sell</button>
+            </div>
+            <label class="tiny" style="display:flex;gap:8px;align-items:center">Slippage
+              <select id="slippage" aria-label="Slippage tolerance" style="border:0;background:var(--card-2);border-radius:7px;padding:6px 8px;font-weight:700">
+                <option value="100">1%</option><option value="300" selected>3%</option><option value="500">5%</option><option value="1000">10%</option>
+              </select>
+            </label>
+          </div>
+          <div class="field">
+            <div style="display:flex;justify-content:space-between"><span class="tiny">You pay</span><span class="tiny" id="bal-in">Balance —</span></div>
+            <div class="field-row">
+              <input id="amount-in" inputmode="decimal" autocomplete="off" placeholder="0.0" aria-label="Amount to pay" />
+              <select id="pay-asset" aria-label="Pay with"><option value="IMD">IMD</option><option value="ETH">ETH</option></select>
+              <span class="tokenbox" id="pay-company" hidden>$COMPANY</span>
+            </div>
+          </div>
+          <div class="field">
+            <div style="display:flex;justify-content:space-between"><span class="tiny">You receive (estimate)</span><span class="tiny" id="bal-out">Balance —</span></div>
+            <div class="field-row">
+              <input id="amount-out" readonly placeholder="0.0" aria-label="Estimated amount received" tabindex="-1" />
+              <span class="tokenbox" id="recv-company">$COMPANY</span>
+              <select id="recv-asset" aria-label="Receive" hidden><option value="IMD">IMD</option><option value="ETH">ETH</option></select>
+            </div>
+          </div>
+          <dl class="kv">
+            <div><dt>Minimum received</dt><dd class="num" id="q-min">—</dd></div>
+            <div><dt>Fee</dt><dd>4% (3% to holders)</dd></div>
+            <div><dt>Route</dt><dd id="q-route">IMD → $COMPANY</dd></div>
+          </dl>
+          <button class="btn block" id="swap-btn" type="submit" disabled>Trading opens at launch</button>
+          <p class="status" id="swap-status" role="status"></p>
+        </form>
+        <div class="grid">
+          <div class="notice" id="swap-note"><b style="color:var(--ink)">Pre-launch.</b> $COMPANY isn't deployed yet. Swaps turn on here the moment the pool opens.</div>
+          <div class="card prose">
+            <span class="tiny">Before you buy</span>
+            <p>Rewards start once your wallet holds <strong>100,000 $COMPANY</strong>. Smaller balances earn nothing.</p>
+            <p>Rewards you don't claim within 7 days of your last activity expire, except what you earned in those 7 days.</p>
+            <p>Stock rewards are Robinhood Stock Tokens. They aren't offered to US persons, and Robinhood can block addresses. A stock your wallet can't receive stays claimable.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ PORTFOLIO -->
+  <div class="view" id="view-portfolio">
+    <section class="sky page-sky">
+      <div class="wrap rise"><span class="eyebrow">/ Portfolio /</span><h1 id="pf-title">Your stake.</h1><p>Your balance, earning status and rewards in all six assets.</p></div>
+    </section>
+    <div class="wrap overlap" style="display:grid;gap:14px">
+      <div class="notice" id="pf-note" style="box-shadow:var(--lift)"></div>
+      <div class="grid g3">
+        <div class="card big-metric"><span class="tiny">Balance</span><span class="v num" id="pf-bal">—</span><p id="pf-share">—</p></div>
+        <div class="card big-metric"><span class="tiny">Earning status</span><span class="v" id="pf-status">—</span><div class="meter" aria-hidden="true"><i id="pf-meter" style="width:0%"></i></div><p id="pf-status-s">Minimum 100,000 $COMPANY</p></div>
+        <div class="card big-metric"><span class="tiny">Rewards expire in</span><span class="v num" id="pf-expiry">—</span><p>7 days after your last activity. Claiming resets it.</p></div>
+      </div>
+      <div class="card" style="display:grid;gap:18px">
+        <div class="side-head"><h3>Claimable rewards <span class="pill warn" id="pf-pill" style="vertical-align:middle;margin-left:6px">Example</span></h3><span class="caps num" id="pf-total">—</span></div>
+        <div class="table-scroll">
+          <table class="rtable"><thead><tr><th>Asset</th><th>Amount</th><th>Value</th></tr></thead><tbody id="pf-rows"></tbody></table>
+        </div>
+        <p style="color:var(--muted);font-size:13px">Claiming also buys any stock still waiting as IMD and adds your share before paying, so you may receive slightly more than shown.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn" id="claim-btn" type="button" disabled>Claim all six assets</button>
+          <p class="status" id="claim-status" role="status"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ DOCS -->
+  <div class="view" id="view-docs">
+    <section class="sky page-sky">
+      <div class="wrap rise"><span class="eyebrow">/ How it works /</span><h1>How rewards<br />work.</h1><p>Contracts, fees, and the rules the site reads from.</p></div>
+    </section>
+    <div class="wrap">
+      <section class="section">
+        <h2>Process</h2>
+        <div class="grid g2 steps process" id="docs-steps"></div>
+      </section>
+
+      <section class="section">
+        <h2>Why fees are taken in IMD</h2>
+        <div class="card table-scroll" style="padding:8px 22px">
+          <table class="plain">
+            <thead><tr><th>Point</th><th>Taking fees in the token</th><th>The Company</th></tr></thead>
+            <tbody>
+              <tr><td><b>Fee asset</b></td><td>$COMPANY collected as the fee</td><td>IMD collected by the hook</td></tr>
+              <tr><td><b>Paying holders</b></td><td>Needs selling $COMPANY</td><td>Paid from collected IMD</td></tr>
+              <tr><td><b>Token impact</b></td><td>Treasury sales add sell pressure</td><td>$COMPANY is never sold to pay holders</td></tr>
+              <tr><td><b>Who runs it</b></td><td>Often a team keeper</td><td>Claims run it; no keeper, no owner</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Rules</h2>
+        <div class="grid g3">
+          <div class="card prose"><span class="tiny">Minimum holding</span><h3>100,000 $COMPANY</h3><p>Wallets below it earn nothing. You earn from the moment you reach it, never retroactively, and keep what you earned if you drop below.</p></div>
+          <div class="card prose"><span class="tiny">Expiry</span><h3>7 days</h3><p>You're active when you claim, buy, send $COMPANY, or receive it for the first time. After 7 inactive days, rewards older than 7 days go to the protocol address.</p></div>
+          <div class="card prose"><span class="tiny">Stock buying</span><h3>0.25% per round</h3><p>Each claim buys stocks with at most 0.25% of the IMD/USDG pool, shared by the five stocks, and each stock at most once a minute. That keeps sandwich attacks unprofitable.</p></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Contracts</h2>
+        <div class="card table-scroll" style="padding:8px 22px">
+          <table class="plain"><thead><tr><th>Contract address</th><th></th></tr></thead><tbody id="contracts"></tbody></table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Common questions</h2>
+        <div class="faq">
+          <details><summary>Where do rewards arrive?</summary><p>In your wallet, when you claim. One claim pays IMD and every stock you earned.</p></details>
+          <details><summary>Do I need to stake?</summary><p>No. Holding at least 100,000 $COMPANY in your wallet is enough.</p></details>
+          <details><summary>What happens if I sell part of my balance?</summary><p>Everything you earned stays yours. Future rewards follow your new balance, or stop if you drop below 100,000.</p></details>
+          <details><summary>Why did my stock rewards change size?</summary><p>They depend on trading volume, when stocks were last bought, and the price each stock was bought at.</p></details>
+          <details><summary>Can anyone change the rules?</summary><p>No. The token has no owner and no admin functions. The hook's owner can only open the pool once and change the protocol fee address.</p></details>
+          <details><summary>Are these real shares?</summary><p>They are Robinhood Stock Tokens: tokens tracking the stock, not brokerage shares, with no voting rights. They aren't offered to US persons, and Robinhood can block addresses.</p></details>
+          <details><summary>Has it been audited?</summary><p>Not yet. Treat it as unaudited software until an audit is published.</p></details>
+        </div>
+      </section>
+    </div>
+
+    <section class="sky closer">
+      <h2>Stocks earned by $COMPANY holders.</h2>
+      <a class="btn on-sky" href="#swap">Buy $COMPANY <span aria-hidden="true">→</span></a>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Informational only; not financial, legal, tax, or investment advice. Rewards are Robinhood Stock Tokens, not brokerage shares, and do not include voting rights. Liquidity may be limited and prices can move materially. Swaps include the 4% fee shown in the quote.</p>
+    <p><a href="https://github.com/imdmaxi/IMDINDEX">Source on GitHub</a></p>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.17.0/ethers.umd.min.js"></script>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------- config
+// After deployment, copy token/hook/router/ethRouter from contracts/deployments/robinhood.json.
+const CONFIG = {
+  chainId: 4663,
+  chainName: "Robinhood Chain",
+  rpc: "https://robinhood.drpc.org",
+  explorer: "https://robinhoodchain.blockscout.com",
+  token: null,
+  hook: null,
+  router: null,
+  ethRouter: null,
+  usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+  stateView: "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+  poolManager: "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+  // tokenIs0: whether the asset is currency0 in its USDG pool (USDG has 6 decimals, the rest 18)
+  assets: [
+    { sym: "IMD", name: "Identity.md", addr: "0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127", share: 50, tile: "#191918", pool: "0xaf5bcd88bb2b6084ca18319385b61fcbe17ec579032074861004f2668168406f", tokenIs0: true },
+    { sym: "NVDA", name: "NVIDIA", addr: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", share: 10, tile: "#4f7a12", pool: "0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5", tokenIs0: false },
+    { sym: "GOOGL", name: "Alphabet Class A", addr: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", share: 10, tile: "#2f5fb3", pool: "0xd4ecb79fdc521d7725d22b33ed43cb4e47aa96bfad76aa29577e3151f723ac5e", tokenIs0: true },
+    { sym: "AAPL", name: "Apple", addr: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", share: 10, tile: "#3d3d3f", pool: "0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb", tokenIs0: false },
+    { sym: "AMC", name: "AMC Entertainment", addr: "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B", share: 10, tile: "#a8282e", pool: "0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d", tokenIs0: true },
+    { sym: "MSTR", name: "Strategy", addr: "0xec262a75e413fAfD0dF80480274532C79D42da09", share: 10, tile: "#c46a12", pool: "0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe", tokenIs0: false },
+  ],
+};
+const MIN_HOLDING = 100000;
+// Prices read from the same pools on 7 Oct 2026, shown until live reads succeed.
+const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 240.12, GOOGL: 347.71, AAPL: 334.52, AMC: 2.95, MSTR: 161.37 } };
+// Example figures for the hero dashboard and the Portfolio page until real data exists (always labelled "Example").
+const EXAMPLE = {
+  balance: 4835239, share: 0.48, lastActiveDaysAgo: 2,
+  rewards: { IMD: 12.41, NVDA: 0.0213, GOOGL: 0.0147, AAPL: 0.0153, AMC: 1.73, MSTR: 0.0317 },
+  latest: { NVDA: 0.0412, GOOGL: 0.0284, AAPL: 0.0296, AMC: 3.34, MSTR: 0.0612 },
+  bars: [8, 10, 9, 13, 15, 14, 19, 22, 21, 26, 30, 29, 35, 41, 39, 47, 53, 60],
+};
+const STEPS = [
+  ["People trade $COMPANY", "Trades go through one Uniswap v4 pool against IMD. Buy with IMD or ETH.", "UNISWAP V4"],
+  ["The hook collects 4%", "1% to the protocol, 3% to holders, on every router and aggregator. $COMPANY itself is never taken.", "4% FEE"],
+  ["Claims buy the stocks", "Each claim first swaps the IMD set aside for stocks along IMD → USDG → stock, capped so it can't be sandwiched.", "5 STOCKS"],
+  ["Holders receive six assets", "One claim pays your IMD and every stock you earned, straight to your wallet.", "ON CHAIN"],
+];
+
+const ABI = {
+  stateView: ["function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)"],
+  erc20: ["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)"],
+  token: [
+    "function balanceOf(address) view returns (uint256)", "function eligibleSupply() view returns (uint256)", "function weightOf(address) view returns (uint256)",
+    "function rewardsOf(address) view returns (uint256[6])", "function lastActive(address) view returns (uint256)", "function totalDistributed(uint256) view returns (uint256)",
+    "function claim() returns (uint256[6])",
+  ],
+  hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)"],
+  router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)", "function sell(address,uint256,uint256,uint256) returns (uint256)"],
+  ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)", "function sellForEth(address,uint256,uint256,uint256) returns (uint256)"],
+};
+
+// ---------------------------------------------------------------- helpers
+const $ = (id) => document.getElementById(id);
+const hasEthers = typeof window.ethers !== "undefined";
+const launched = () => Boolean(CONFIG.token && CONFIG.hook && CONFIG.router && CONFIG.ethRouter);
+const state = { prices: { ...SNAPSHOT.prices }, live: false, account: null, signer: null, dir: "buy", minOut: 0n };
+let reader = null;
+if (hasEthers) {
+  // batchMaxCount 1: the public RPC answers 500 to batches of more than a few calls.
+  try { reader = new ethers.JsonRpcProvider(CONFIG.rpc, CONFIG.chainId, { staticNetwork: true, batchMaxCount: 1 }); } catch (e) { reader = null; }
+}
+function fmtUsd(v, d) {
+  if (v == null || !isFinite(v)) return "—";
+  const digits = d != null ? d : v >= 1 ? 2 : 4;
+  return "$" + v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+const fmtNum = (v, d = 2) => (v == null || !isFinite(v) ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: d }));
+function fmtTok(v) {
+  if (v == null || !isFinite(v)) return "—";
+  if (v === 0) return "0";
+  if (v < 0.0001) return "<0.0001";
+  return fmtNum(v, v >= 1000 ? 0 : v >= 1 ? 3 : 5);
+}
+const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+const units = (x, d = 18) => Number(ethers.formatUnits(x, d));
+const asset = (sym) => CONFIG.assets.find((a) => a.sym === sym);
+// Monogram tile instead of a logo: full ticker on large tiles (sized to fit), first letter on small ones.
+const mono = (a, cls = "") => {
+  const text = cls ? a.sym[0] : a.sym;
+  const size = cls ? "" : `font-size:${a.sym.length >= 5 ? 8 : a.sym.length === 4 ? 9 : 10}px;`;
+  return `<span class="mono ${cls}" style="--tile:${a.tile};${size}" aria-hidden="true">${text}</span>`;
+};
+function setStatus(el, msg, kind) { el.textContent = msg || ""; el.className = "status" + (kind ? " " + kind : ""); }
+function errMsg(e) {
+  const m = (e && (e.shortMessage || e.reason || e.message)) || String(e);
+  if (/user rejected|denied/i.test(m)) return "You cancelled the request in your wallet.";
+  return m.length > 180 ? m.slice(0, 180) + "…" : m;
+}
+
+// ---------------------------------------------------------------- day / night
+function currentTheme() {
+  const t = document.documentElement.getAttribute("data-theme");
+  if (t) return t;
+  return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function syncThemeButton() {
+  const dark = currentTheme() === "dark";
+  $("ic-moon").hidden = dark; $("ic-sun").hidden = !dark;
+  $("theme-btn").setAttribute("aria-label", dark ? "Switch to day mode" : "Switch to night mode");
+}
+$("theme-btn").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("company-theme", next); } catch (e) {}
+  syncThemeButton();
+});
+if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", syncThemeButton);
+
+// ---------------------------------------------------------------- nav: shrink to a pill on scroll
+const navbar = $("navbar");
+function onScroll() { navbar.classList.toggle("compact", window.scrollY > 140); }
+window.addEventListener("scroll", onScroll, { passive: true });
+$("nav").addEventListener("click", (e) => { if (navbar.classList.contains("compact")) { e.preventDefault(); navbar.classList.remove("compact"); } }, true);
+
+// ---------------------------------------------------------------- routing
+const ROUTES = ["home", "swap", "portfolio", "docs"];
+function route() {
+  const r = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home";
+  for (const name of ROUTES) $("view-" + name).classList.toggle("on", name === r);
+  document.querySelectorAll(".links a").forEach((a) => { if (a.dataset.route === r) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  window.scrollTo({ top: 0 });
+  onScroll();
+}
+window.addEventListener("hashchange", route);
+
+// ---------------------------------------------------------------- static renders
+function renderSteps() {
+  const html = STEPS.map(([t, d, tag], i) => `<div class="card step"><span class="n num">0${i + 1}</span><div><h3>${t}</h3><p>${d}</p><span class="tag">${tag}</span></div></div>`).join("");
+  $("home-steps").innerHTML = html; $("docs-steps").innerHTML = html;
+}
+function renderMock() {
+  $("mk-bars").innerHTML = EXAMPLE.bars.map((h) => `<i style="height:${(h / 60) * 100}%"></i>`).join("");
+  $("mk-latest").innerHTML = Object.entries(EXAMPLE.latest).map(([sym, amt]) => {
+    const a = asset(sym);
+    return `<div class="lchip">${mono(a, "sm")}<span>${sym}</span><span class="r num">+${fmtTok(amt)}<small>${fmtUsd(amt * state.prices[sym], 2)}</small></span></div>`;
+  }).join("");
+  $("mk-logos").innerHTML = CONFIG.assets.slice(1).map((a) => mono(a, "xs")).join("");
+}
+function renderBasket() {
+  $("basket").innerHTML = CONFIG.assets.map((a) => `
+    <div class="card stock">
+      <div class="stock-top">${mono(a)}<div><b>${a.sym}</b><span>${a.name}</span></div><span class="share">${a.share}%</span></div>
+      <div class="stock-foot"><div><span class="tiny">Price</span><div class="price num">${fmtUsd(state.prices[a.sym])}</div></div>
+      <a href="${CONFIG.explorer}/token/${a.addr}" target="_blank" rel="noopener">View asset →</a></div>
+    </div>`).join("");
+  const pill = $("price-pill");
+  pill.textContent = state.live ? "Live from pools" : SNAPSHOT.label;
+  pill.className = "pill" + (state.live ? " live" : "");
+  renderMock();
+}
+function renderContracts() {
+  const rows = [
+    ["$COMPANY", CONFIG.token], ["CompanyHook", CONFIG.hook], ["CompanyRouter", CONFIG.router], ["CompanyEthRouter", CONFIG.ethRouter],
+    ["Uniswap v4 PoolManager", CONFIG.poolManager], ["USDG", CONFIG.usdg], ...CONFIG.assets.map((a) => [a.sym, a.addr]),
+  ];
+  $("contracts").innerHTML = rows.map(([n, a]) => `<tr><td><b>${n}</b></td><td class="addr">${a ? `<a href="${CONFIG.explorer}/address/${a}" target="_blank" rel="noopener">${a} ↗</a>` : "Published at launch"}</td></tr>`).join("");
+}
+
+// ---------------------------------------------------------------- live reads
+async function loadPrices() {
+  if (!reader) return;
+  try {
+    const sv = new ethers.Contract(CONFIG.stateView, ABI.stateView, reader);
+    const slots = await Promise.all(CONFIG.assets.map((a) => sv.getSlot0(a.pool)));
+    CONFIG.assets.forEach((a, i) => {
+      const s = Number(slots[i][0]) / 2 ** 96;
+      const raw = s * s; // raw currency1 per raw currency0
+      state.prices[a.sym] = a.tokenIs0 ? raw * 1e12 : 1 / (raw * 1e-12);
+    });
+    state.live = true;
+  } catch (e) { state.live = false; }
+  renderBasket();
+}
+async function loadMetrics() {
+  const pill = $("metrics-pill");
+  if (!launched() || !reader) { pill.textContent = "Live after launch"; return; }
+  try {
+    const t = new ethers.Contract(CONFIG.token, ABI.token, reader);
+    const h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
+    const [mcap, paid, elig] = await Promise.all([h.marketCap(CONFIG.token), t.totalDistributed(0), t.eligibleSupply()]);
+    const imdUsd = state.prices.IMD, mcapImd = units(mcap);
+    $("m-price").textContent = fmtUsd((mcapImd / 1e9) * imdUsd, 6);
+    $("m-mcap").textContent = fmtUsd(mcapImd * imdUsd, 0);
+    $("m-paid").textContent = fmtNum(units(paid), 0) + " IMD";
+    $("m-eligible").textContent = fmtNum(units(elig) / 1e6, 1) + "M";
+    pill.textContent = "Live"; pill.className = "pill live";
+    // the hero dashboard shows real totals once live
+    let total = 0;
+    const totals = await Promise.all(CONFIG.assets.map((_, i) => t.totalDistributed(i)));
+    totals.forEach((v, i) => { total += units(v) * state.prices[CONFIG.assets[i].sym]; });
+    $("mk-total").textContent = fmtUsd(total, 2); $("mk-total-2").textContent = fmtUsd(total, 0);
+    $("mk-fees").textContent = fmtNum((units(paid) / 0.5) / 0.75, 0) + " IMD";
+    $("mk-tag").textContent = "Live"; $("mk-tag").className = "pill live";
+  } catch (e) { pill.textContent = "Couldn't reach Robinhood Chain"; }
+}
+
+// ---------------------------------------------------------------- wallet
+async function ensureChain() {
+  const hex = "0x" + CONFIG.chainId.toString(16);
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
+  } catch (e) {
+    if (e && e.code === 4902) {
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: CONFIG.chainName, rpcUrls: [CONFIG.rpc], nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, blockExplorerUrls: [CONFIG.explorer] }] });
+    } else throw e;
+  }
+}
+async function connect() {
+  const btn = $("connect");
+  if (!window.ethereum || !hasEthers) {
+    btn.textContent = "No wallet found";
+    setTimeout(() => { btn.textContent = state.account ? short(state.account) : "Connect"; }, 2500);
+    return;
+  }
+  try {
+    await new ethers.BrowserProvider(window.ethereum).send("eth_requestAccounts", []);
+    await ensureChain();
+    state.signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    state.account = await state.signer.getAddress();
+    btn.textContent = short(state.account);
+    await Promise.all([loadPortfolio(), refreshSwap()]);
+  } catch (e) { btn.textContent = "Connect"; }
+}
+$("connect").addEventListener("click", connect);
+if (window.ethereum && window.ethereum.on) {
+  window.ethereum.on("accountsChanged", () => { state.account = null; state.signer = null; $("connect").textContent = "Connect"; connect(); });
+  window.ethereum.on("chainChanged", () => location.reload());
+}
+
+// ---------------------------------------------------------------- portfolio
+function renderPortfolio(p) {
+  $("pf-bal").textContent = fmtNum(p.balance, 0);
+  $("pf-share").textContent = p.share != null ? fmtNum(p.share, 2) + "% of earning supply" : "—";
+  $("pf-meter").style.width = Math.min(100, (p.balance / MIN_HOLDING) * 100) + "%";
+  const earning = p.balance >= MIN_HOLDING;
+  $("pf-status").textContent = earning ? "Earning" : "Not earning";
+  $("pf-status").style.color = earning ? "var(--good)" : "var(--warn)";
+  $("pf-status-s").textContent = earning ? "Above the 100,000 $COMPANY minimum" : `${fmtNum(MIN_HOLDING - p.balance, 0)} more $COMPANY to start earning`;
+  if (p.lastActive) {
+    const left = p.lastActive + 7 * 86400 - Date.now() / 1000;
+    $("pf-expiry").textContent = left > 0 ? (left > 86400 ? Math.floor(left / 86400) + "d " : "") + Math.floor((left % 86400) / 3600) + "h" : "Now";
+  } else $("pf-expiry").textContent = "—";
+  let total = 0;
+  $("pf-rows").innerHTML = CONFIG.assets.map((a) => {
+    const amt = p.rewards[a.sym] || 0, usd = amt * (state.prices[a.sym] || 0); total += usd;
+    return `<tr><td><div class="asset-cell">${mono(a)}<div><b>${a.sym}</b><br /><span>${a.name}</span></div></div></td><td class="num">${fmtTok(amt)}</td><td class="num">${fmtUsd(usd, 2)}</td></tr>`;
+  }).join("");
+  $("pf-total").textContent = "Total " + fmtUsd(total, 2);
+}
+function showExample() {
+  $("pf-title").textContent = "Your stake.";
+  $("pf-pill").textContent = "Example"; $("pf-pill").className = "pill warn"; $("pf-pill").hidden = false;
+  const n = $("pf-note"); n.hidden = false;
+  n.innerHTML = launched()
+    ? "<b style='color:var(--ink)'>Example wallet.</b> Connect yours to see your own balance and rewards."
+    : state.account
+      ? "<b style='color:var(--ink)'>Wallet connected.</b> $COMPANY isn't deployed yet, so the figures below are an example."
+      : "<b style='color:var(--ink)'>Example wallet.</b> $COMPANY isn't deployed yet. Connect after launch to see your own balance and rewards.";
+  renderPortfolio({ balance: EXAMPLE.balance, share: EXAMPLE.share, lastActive: Date.now() / 1000 - EXAMPLE.lastActiveDaysAgo * 86400, rewards: EXAMPLE.rewards });
+  $("claim-btn").disabled = true;
+}
+async function loadPortfolio() {
+  if (!state.account || !launched()) { showExample(); return; }
+  try {
+    const t = new ethers.Contract(CONFIG.token, ABI.token, reader);
+    const [bal, weight, elig, rewards, last] = await Promise.all([t.balanceOf(state.account), t.weightOf(state.account), t.eligibleSupply(), t.rewardsOf(state.account), t.lastActive(state.account)]);
+    const r = {}; CONFIG.assets.forEach((a, i) => { r[a.sym] = units(rewards[i]); });
+    $("pf-title").textContent = short(state.account);
+    $("pf-pill").textContent = "Your wallet"; $("pf-pill").className = "pill live";
+    $("pf-note").hidden = true;
+    renderPortfolio({ balance: units(bal), share: elig > 0n ? (units(weight) / units(elig)) * 100 : 0, lastActive: Number(last), rewards: r });
+    $("claim-btn").disabled = false;
+  } catch (e) { setStatus($("claim-status"), "Couldn't read your rewards: " + errMsg(e), "err"); }
+}
+$("claim-btn").addEventListener("click", async () => {
+  const st = $("claim-status");
+  if (!state.signer) return connect();
+  try {
+    $("claim-btn").disabled = true;
+    setStatus(st, "Confirm the claim in your wallet…");
+    const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim({ gasLimit: 3_500_000n });
+    setStatus(st, "Claiming… " + short(tx.hash));
+    await tx.wait();
+    setStatus(st, "Claimed. Your IMD and stocks are in your wallet.", "ok");
+    await loadPortfolio();
+  } catch (e) { setStatus(st, errMsg(e), "err"); }
+  finally { $("claim-btn").disabled = !launched() || !state.account; }
+});
+
+// ---------------------------------------------------------------- swap
+function swapSide() { const buy = state.dir === "buy"; return { buy, quote: buy ? $("pay-asset").value : $("recv-asset").value }; }
+function syncSwapUi() {
+  const { buy, quote } = swapSide();
+  $("dir-buy").setAttribute("aria-pressed", String(buy));
+  $("dir-sell").setAttribute("aria-pressed", String(!buy));
+  $("pay-asset").hidden = !buy; $("pay-company").hidden = buy;
+  $("recv-asset").hidden = buy; $("recv-company").hidden = !buy;
+  $("q-route").textContent = buy ? (quote === "ETH" ? "ETH → IMD → $COMPANY" : "IMD → $COMPANY") : (quote === "ETH" ? "$COMPANY → IMD → ETH" : "$COMPANY → IMD");
+  $("amount-out").value = ""; $("q-min").textContent = "—";
+}
+$("dir-buy").addEventListener("click", () => { state.dir = "buy"; syncSwapUi(); refreshSwap(); });
+$("dir-sell").addEventListener("click", () => { state.dir = "sell"; syncSwapUi(); refreshSwap(); });
+["pay-asset", "recv-asset", "slippage"].forEach((id) => $(id).addEventListener("change", () => { syncSwapUi(); refreshSwap(); }));
+let quoteTimer = null;
+$("amount-in").addEventListener("input", () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(refreshSwap, 350); });
+function parseIn() {
+  const v = $("amount-in").value.trim();
+  if (!v || !/^\d*\.?\d*$/.test(v) || Number(v) <= 0) return null;
+  try { return ethers.parseUnits(v, 18); } catch (e) { return null; }
+}
+// What the swap needs: the token to approve (if any), the contract call and its ETH value.
+function plan(amount) {
+  const { buy, quote } = swapSide();
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+  if (buy && quote === "IMD") return { approveToken: CONFIG.assets[0].addr, spender: CONFIG.router, c: new ethers.Contract(CONFIG.router, ABI.router, state.signer), fn: "buy", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
+  if (buy) return { c: new ethers.Contract(CONFIG.ethRouter, ABI.ethRouter, state.signer), fn: "buyWithEth", args: (m) => [CONFIG.token, m, deadline], value: amount };
+  if (quote === "IMD") return { approveToken: CONFIG.token, spender: CONFIG.router, c: new ethers.Contract(CONFIG.router, ABI.router, state.signer), fn: "sell", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
+  return { approveToken: CONFIG.token, spender: CONFIG.ethRouter, c: new ethers.Contract(CONFIG.ethRouter, ABI.ethRouter, state.signer), fn: "sellForEth", args: (m) => [CONFIG.token, amount, m, deadline], value: 0n };
+}
+async function refreshBalances() {
+  if (!state.account || !launched()) return;
+  const { buy, quote } = swapSide();
+  const bal = async (sym) => sym === "ETH" ? state.signer.provider.getBalance(state.account) : new ethers.Contract(sym === "IMD" ? CONFIG.assets[0].addr : CONFIG.token, ABI.erc20, reader).balanceOf(state.account);
+  const [bin, bout] = await Promise.all([bal(buy ? quote : "COMPANY"), bal(buy ? "COMPANY" : quote)]);
+  $("bal-in").textContent = "Balance " + fmtTok(units(bin));
+  $("bal-out").textContent = "Balance " + fmtTok(units(bout));
+}
+async function refreshSwap() {
+  const btn = $("swap-btn"), st = $("swap-status");
+  if (!launched()) { btn.disabled = true; btn.textContent = "Trading opens at launch"; $("swap-note").hidden = false; return; }
+  $("swap-note").hidden = true;
+  if (!state.account) { btn.disabled = false; btn.textContent = "Connect wallet"; return; }
+  setStatus(st, "");
+  try { await refreshBalances(); } catch (e) {}
+  const amount = parseIn();
+  if (!amount) { btn.disabled = true; btn.textContent = "Enter an amount"; $("amount-out").value = ""; $("q-min").textContent = "—"; return; }
+  const p = plan(amount);
+  if (p.approveToken) {
+    const allowance = await new ethers.Contract(p.approveToken, ABI.erc20, reader).allowance(state.account, p.spender);
+    if (allowance < amount) { btn.disabled = false; btn.dataset.mode = "approve"; btn.textContent = "Approve " + (p.approveToken === CONFIG.token ? "$COMPANY" : "IMD"); $("amount-out").value = ""; $("q-min").textContent = "Quote after approval"; return; }
+  }
+  try {
+    const out = await p.c[p.fn].staticCall(...p.args(0n), { value: p.value });
+    state.minOut = (out * (10000n - BigInt($("slippage").value))) / 10000n;
+    $("amount-out").value = fmtTok(units(out));
+    $("q-min").textContent = fmtTok(units(state.minOut));
+    btn.disabled = false; btn.dataset.mode = "swap";
+    btn.textContent = state.dir === "buy" ? "Buy $COMPANY" : "Sell $COMPANY";
+  } catch (e) { btn.disabled = true; btn.textContent = "No quote"; setStatus(st, "Couldn't get a quote: " + errMsg(e), "err"); }
+}
+$("swap-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("swap-btn"), st = $("swap-status");
+  if (!launched()) return;
+  if (!state.signer) return connect();
+  const amount = parseIn(); if (!amount) return;
+  const p = plan(amount);
+  try {
+    btn.disabled = true;
+    if (btn.dataset.mode === "approve") {
+      setStatus(st, "Confirm the approval in your wallet…");
+      await (await new ethers.Contract(p.approveToken, ABI.erc20, state.signer).approve(p.spender, amount)).wait();
+      setStatus(st, "Approved.", "ok");
+    } else {
+      setStatus(st, "Confirm the swap in your wallet…");
+      const tx = await p.c[p.fn](...p.args(state.minOut), { value: p.value });
+      setStatus(st, "Swapping… " + short(tx.hash));
+      await tx.wait();
+      setStatus(st, "Done. " + (state.dir === "buy" ? "$COMPANY is in your wallet." : "Your proceeds are in your wallet."), "ok");
+      $("amount-in").value = "";
+    }
+  } catch (err) { setStatus(st, errMsg(err), "err"); }
+  await refreshSwap();
+});
+
+// ---------------------------------------------------------------- boot
+syncThemeButton();
+route();
+renderSteps();
+renderBasket();
+renderContracts();
+syncSwapUi();
+showExample();
+refreshSwap();
+loadPrices().then(loadMetrics);
+</script>
+</body>
+</html>
