@@ -50,7 +50,7 @@ interface ICompanyHook {
 ///             to another address resets that address's timer (it costs the buyer the 4% fee).
 ///
 ///         Stock tokens can block addresses. A payout that fails stays claimable (it is not lost), and the other
-///         assets are still paid. A stock that can't be bought for 30 days hands its reserve to IMD holders.
+///         assets are still paid. When a stock can't be bought, that round's IMD for it is paid to holders as IMD.
 /// @dev Dividends use the "magnified dividend per share" pattern once per asset: accrual is O(1) for every holder
 ///      on each distribution. The hook, the routers, the v4 PoolManager (which holds the pool's tokens), this
 ///      contract and burn addresses are system accounts and earn nothing. Ownership is renounced at deployment. No
@@ -71,6 +71,7 @@ contract CompanyToken is IUnlockCallback {
     error NotEligible();
     error NotPoolManager();
     error NotSelf();
+    error NotEnoughGas();
     error BadAsset();
     error BadAmount();
     error BadPool();
@@ -86,7 +87,8 @@ contract CompanyToken is IUnlockCallback {
     event PayoutFailed(address indexed holder, uint256 indexed asset, uint256 amount);
     event RewardsRecycled(address indexed holder, uint256 indexed asset, uint256 amount);
     event Converted(uint256 indexed asset, uint256 imdIn, uint256 usdOut, uint256 stockOut);
-    event ReserveReleased(uint256 indexed asset, uint256 imdAmount);
+    /// @notice A stock couldn't be bought this round, so its IMD was credited to holders as IMD instead.
+    event ConversionFailed(uint256 indexed asset, uint256 imdAmount);
 
     uint256 public constant totalSupply = 1_000_000_000e18;
     uint8 public constant decimals = 18;
@@ -110,8 +112,9 @@ contract CompanyToken is IUnlockCallback {
     ///         timestamp, so this allows one round per block at most: nobody can claim many times in one
     ///         transaction to sell more IMD at a price they pushed.
     uint256 public constant CONVERT_INTERVAL = 1 minutes;
-    /// @notice A stock with no successful conversion for this long can hand its reserve to IMD holders.
-    uint256 public constant STUCK_PERIOD = 30 days;
+    /// @notice Gas each stock's purchase gets. A fixed budget means a purchase fails only for a real reason (the
+    ///         stock token or its pool refusing it), never because a caller sent a claim with too little gas.
+    uint256 public constant CONVERT_GAS = 1_000_000;
 
     uint256 internal constant MAGNITUDE = 2 ** 128;
     uint256 internal constant Q96 = 2 ** 96;
@@ -513,7 +516,8 @@ contract CompanyToken is IUnlockCallback {
     ///         `claim` runs it first, so holders need no keeper; anyone may also call it. One round spends at most
     ///         `maxConvert()` IMD shared by the five stocks (larger reserves convert over later rounds), and each
     ///         stock converts at most once per `CONVERT_INTERVAL`, so no one can profit from sandwiching it. A stock
-    ///         that isn't due, has nothing waiting or fails (e.g. its token refuses this contract) is skipped.
+    ///         that isn't due or has nothing waiting is skipped. A stock that can't be bought (its token refuses this
+    ///         contract, its pool can't fill the swap) has this round's IMD credited to holders as IMD instead.
     /// @return stockOut stock bought per asset this round (index 0 unused)
     function convert() external nonReentrant returns (uint256[ASSETS] memory stockOut) {
         stockOut = _convertAll();
@@ -528,10 +532,26 @@ contract CompanyToken is IUnlockCallback {
             uint256 imdIn = pendingConvert[a];
             if (imdIn > cap) imdIn = cap;
             if (imdIn == 0) continue;
-            try this.convertStock(a, imdIn) returns (uint256 out) {
+            // Refuse rather than let a low-gas call make purchases fail and turn stock rewards into IMD. With this
+            // much left, the call below always gets its full CONVERT_GAS (EIP-150 keeps 1/64 back).
+            if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) revert NotEnoughGas();
+            try this.convertStock{gas: CONVERT_GAS}(a, imdIn) returns (uint256 out) {
                 stockOut[a] = out;
-            } catch {}
+            } catch {
+                _fallBackToImd(a, imdIn);
+            }
         }
+    }
+
+    /// @dev This round's IMD for stock `asset` couldn't buy it: credit it to holders as IMD. Only this round's
+    ///      amount moves, so one failure (even one an outside party causes) changes at most one round's capped
+    ///      amount; a stock that keeps failing hands its reserve over round by round.
+    function _fallBackToImd(uint256 asset, uint256 imdIn) internal {
+        if (eligibleSupply < MIN_ELIGIBLE_SUPPLY) return;
+        pendingConvert[asset] -= imdIn;
+        lastConvert[asset] = block.timestamp;
+        _credit(0, imdIn);
+        emit ConversionFailed(asset, imdIn);
     }
 
     /// @notice One stock's conversion. Only this contract calls it (from `claim` / `convert`), as a separate call
@@ -597,20 +617,6 @@ contract CompanyToken is IUnlockCallback {
             ? FullMath.mulDiv(liquidity, Q96, sqrtP)  // IMD is currency0: x = L / sqrtP
             : FullMath.mulDiv(liquidity, sqrtP, Q96); // IMD is currency1: y = L * sqrtP
         return (imdDepth * MAX_CONVERT_BPS) / BPS;
-    }
-
-    /// @notice If stock `asset` has had no successful conversion for 30 days (its token or pool stopped
-    ///         working), hands its waiting IMD to holders as IMD rewards instead. Callable by anyone.
-    function releaseStuckReserve(uint256 asset) external nonReentrant returns (uint256 amount) {
-        if (asset == 0 || asset >= ASSETS) revert BadAsset();
-        if (block.timestamp <= lastConvert[asset] + STUCK_PERIOD) revert TooSoon();
-        if (IPoolManager(poolManager).isUnlocked() || eligibleSupply < MIN_ELIGIBLE_SUPPLY) revert NotEligible();
-        amount = pendingConvert[asset];
-        if (amount == 0) revert BadAmount();
-        pendingConvert[asset] = 0;
-        lastConvert[asset] = block.timestamp;
-        _credit(0, amount);
-        emit ReserveReleased(asset, amount);
     }
 
     /// @notice v4 pool keys of the conversion route for stock `asset`: IMD/USDG, then USDG/stock.

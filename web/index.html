@@ -545,6 +545,7 @@ footer p { max-width: 95ch; }
           <details><summary>What happens if I sell part of my balance?</summary><p>Everything you earned stays yours. Future rewards follow your new balance, or stop if you drop below 100,000.</p></details>
           <details><summary>Why did my stock rewards change size?</summary><p>They depend on trading volume, when stocks were last bought, and the price each stock was bought at.</p></details>
           <details><summary>Can anyone change the rules?</summary><p>No. The token has no owner and no admin functions. The hook's owner can only open the pool once and change the protocol fee address.</p></details>
+          <details><summary>What if a stock can't be bought?</summary><p>Then that stock's share is paid to holders as IMD instead, in the same claim. You never lose the value; you just receive it as IMD for that round.</p></details>
           <details><summary>Are these real shares?</summary><p>They are Robinhood Stock Tokens: tokens tracking the stock, not brokerage shares, with no voting rights. They aren't offered to US persons, and Robinhood can block addresses.</p></details>
           <details><summary>Has it been audited?</summary><p>Not yet. Treat it as unaudited software until an audit is published.</p></details>
         </div>
@@ -852,7 +853,7 @@ $("claim-btn").addEventListener("click", async () => {
   try {
     $("claim-btn").disabled = true;
     setStatus(st, "Confirm the claim in your wallet…");
-    const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim({ gasLimit: 3_500_000n });
+    const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim();
     setStatus(st, "Claiming… " + short(tx.hash));
     await tx.wait();
     setStatus(st, "Claimed. Your IMD and stocks are in your wallet.", "ok");

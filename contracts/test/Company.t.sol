@@ -458,37 +458,45 @@ contract CompanyTest is Test {
         assertEq(paid[1], nvda);
     }
 
-    function test_stuckStock_skippedByClaim_releasedToImdAfter30Days() public {
+    function test_stockThatCantBeBought_isPaidAsImdInTheSameClaim() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         _stock(4).setBlocked(address(token), true); // AMC refuses the token contract
         vm.warp(block.timestamp + 1 minutes);
+        uint256 round = token.maxConvert() / 5;
+        uint256 owedImd = token.owed(0);
+        uint256 aliceImd = token.withdrawableRewardOf(alice, 0);
+
         vm.prank(alice);
         uint256[6] memory paid = token.claim();
-        assertEq(paid[4], 0, "AMC skipped");
-        assertEq(token.pendingConvert(4), 6e18, "AMC reserve untouched");
-        assertGt(paid[1], 0, "other stocks converted and paid");
+        assertEq(paid[4], 0, "no AMC");
+        assertGt(paid[1], 0, "other stocks bought and paid");
+        // this round's AMC money went to holders as IMD, at once
+        assertEq(token.pendingConvert(4), 6e18 - round, "one round moved");
+        assertEq(token.owed(0) + paid[0], owedImd + round, "credited as IMD");
+        assertGt(paid[0], aliceImd, "alice got her share of it now");
 
-        vm.expectRevert(CompanyToken.TooSoon.selector);
-        token.releaseStuckReserve(4);
-        vm.warp(block.timestamp + 30 days);
-        uint256 owedBefore = token.owed(0);
-        uint256 amount = token.releaseStuckReserve(4);
-        assertEq(amount, 6e18);
-        assertEq(token.pendingConvert(4), 0);
-        assertEq(token.owed(0), owedBefore + 6e18);
-    }
-
-    function test_releaseStuckReserve_notWhileConverting() public {
-        _buy(alice, 1_000e18);
-        for (uint256 d; d < 31; d++) {
-            vm.warp(block.timestamp + 1 days);
-            _buy(bob, 1_000e18);
+        // while AMC stays blocked, every round hands the next part over as IMD, until nothing waits
+        for (uint256 i; i < 10 && token.pendingConvert(4) > 0; i++) {
+            vm.warp(block.timestamp + 1 minutes);
             token.convert();
         }
+        assertEq(token.pendingConvert(4), 0);
+    }
+
+    function test_lowGasClaim_isRefused_notTurnedIntoImd() public {
+        _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
-        vm.expectRevert(CompanyToken.TooSoon.selector);
-        token.releaseStuckReserve(1);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 pending = token.pendingConvert(1);
+        uint256 owedImd = token.owed(0);
+        // a caller trying to make purchases fail by starving them of gas
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = address(token).call{gas: 900_000}(abi.encodeCall(CompanyToken.claim, ()));
+        assertFalse(ok);
+        assertEq(bytes4(ret), CompanyToken.NotEnoughGas.selector);
+        assertEq(token.pendingConvert(1), pending, "nothing moved");
+        assertEq(token.owed(0), owedImd);
     }
 
     // ------------------------------------------------------------ expiry

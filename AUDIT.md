@@ -9,7 +9,7 @@ The Zero Person Billion Dollar Company ($COMPANY) is one fixed-supply token on *
 - The whole supply (1,000,000,000) is single-sided liquidity owned by `CompanyHook`, which has no function to remove it. The hook is also the pool's v4 hook and blocks other pools and outside liquidity.
 - The hook charges **4% of the IMD side of every swap**, through any router: 1% protocol (`feeRecipient`), 3% holders. Pool LP fee is 0.
 - `CompanyToken.distribute()` splits each holder-fee arrival: **50% credited in IMD**, **10% reserved per stock** for NVDA, GOOGL, AAPL, AMC and MSTR (Robinhood Stock Tokens, which have per-address blocklists).
-- Reserves are converted IMD → USDG → stock through fixed hookless v4 pools (`CompanyConfig.sol` lists them with their ids), **at the start of every `claim()`** or by anyone through `convert()`. One round spends at most `maxConvert()` = 0.25% of the IMD/USDG pool's virtual IMD depth, shared by the five stocks; each stock converts at most once per minute. Each stock runs in its own `try this.convertStock(...)` so a failing stock is skipped.
+- Reserves are converted IMD → USDG → stock through fixed hookless v4 pools (`CompanyConfig.sol` lists them with their ids), **at the start of every `claim()`** or by anyone through `convert()`. One round spends at most `maxConvert()` = 0.25% of the IMD/USDG pool's virtual IMD depth, shared by the five stocks; each stock converts at most once per minute. Each stock runs in its own `try this.convertStock{gas: CONVERT_GAS}(...)`; when a purchase fails, that round's IMD for the stock is credited to holders as IMD at once (`_fallBackToImd`). A claim with too little gas left for a full `CONVERT_GAS` reverts (`NotEnoughGas`), so a caller can't starve purchases to force the fallback.
 - Only wallets holding **≥ 100,000 $COMPANY** earn (`MIN_HOLDING`): earning weight is the balance, or 0 below it.
 - Unclaimed rewards of wallets inactive for > 7 days expire to `feeRecipient` (except the last 7 days' earnings).
 - No owner on the token (renounced in the constructor), no mint, no upgradeability.
@@ -34,7 +34,7 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 4. **Conversion can't be profitably sandwiched or drained:** the per-round cap, the per-stock 1-minute spacing (many claims in one transaction convert once), the self-call isolation, and the `maxConvert` depth read. Can the cap be inflated, or a round made to sell more than 0.25% of depth?
 5. **Minimum holding:** `eligibleSupply` always equals the sum of weights; crossing 100,000 either way never changes rewards already earned.
 6. **Expiry:** `recycle` never moves more than `expiredRewardsOf`, and only to `feeRecipient`.
-7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock blocked for 30 days can be released to IMD holders.
+7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock that can't be bought falls back to IMD one capped round at a time, and only on a real failure, never because the caller sent too little gas.
 8. **No privileged control over balances, fees or transfers:** the token's owner is renounced; the hook owner can only `openPool` once and change `feeRecipient`.
 
 ## 4. Known and accepted
@@ -43,5 +43,6 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 - A buy delivered by a router to another address resets that address's expiry timer (costs the buyer 4%).
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.
 - Conversion has no minimum output; safety rests on the cap and spacing. Fixed routes can't be changed after deployment.
+- Anyone able to make a purchase fail on purpose (e.g. an LP pulling a stock pool's liquidity in the same transaction) can turn that round's stock share into IMD; holders still receive its full value in IMD.
 - A reverse split of a stock token that shrinks this contract's balance would leave the last claimers short.
 - Stock tokens are restricted for US persons and filtered at the sequencer; not modelled in tests.
