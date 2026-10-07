@@ -8,8 +8,8 @@ The Zero Person Billion Dollar Company ($COMPANY) is one fixed-supply token on *
 
 - The whole supply (1,000,000,000) is single-sided liquidity owned by `CompanyHook`, which has no function to remove it. The hook is also the pool's v4 hook and blocks other pools and outside liquidity.
 - The hook charges **4% of the IMD side of every swap**, through any router: 1% protocol (`feeRecipient`), 3% holders. Pool LP fee is 0.
-- `CompanyToken.distribute()` splits each holder-fee arrival: **50% credited in IMD**, **10% reserved per stock** for NVDA, GOOGL, AAPL, AMC and MSTR (Robinhood Stock Tokens, which have per-address blocklists).
-- Reserves are converted IMD → USDG → stock through fixed hookless v4 pools (`CompanyConfig.sol` lists them with their ids), **at the start of every `claim()`** or by anyone through `convert()`. One round spends at most `maxConvert()` = 0.25% of the IMD/USDG pool's virtual IMD depth, shared by the five stocks; each stock converts at most once per minute. Each stock runs in its own `try this.convertStock{gas: CONVERT_GAS}(...)`; when a purchase fails, that round's IMD for the stock is credited to holders as IMD at once (`_fallBackToImd`). A claim with too little gas left for a full `CONVERT_GAS` reverts (`NotEnoughGas`), so a caller can't starve purchases to force the fallback.
+- `CompanyToken.distribute()` splits each holder-fee arrival: **50% credited in IMD**, **10% reserved per stock** for NVDA, GOOGL, AAPL, GME and MSTR (Robinhood Stock Tokens, which have per-address blocklists).
+- Reserves are converted IMD → USDG → stock through fixed hookless v4 pools (`CompanyConfig.sol` lists them with their ids), **at the start of every `claim()`** or by anyone through `convert()`. One round spends at most `maxConvert()` = 0.25% of the IMD/USDG pool's virtual IMD depth, shared by the five stocks; each stock converts at most once per minute. Each stock runs in its own `try this.convertStock{gas: CONVERT_GAS}(...)`; when a purchase fails, that round's IMD for the stock is credited to holders as IMD at once (`_fallBackToImd`). With too little gas left for a full `CONVERT_GAS` the stock is skipped (never fallen back), so a caller can't starve purchases to force the fallback, and a claim never fails on it. Every purchase must also receive at least 97% of what the Chainlink stock/USD and USDG/USD feeds imply (`minStockOut`), otherwise it reverts `PriceOff` and the stock is skipped this round; a stale or missing feed (older than 4 days) holds the stock. A stock pool with no liquidity at its price (`stockRoundLimit` = 0) has the round credited as IMD without a swap.
 - Only wallets holding **≥ 100,000 $COMPANY** earn (`MIN_HOLDING`): earning weight is the balance, or 0 below it.
 - Unclaimed rewards of wallets inactive for > 7 days expire to `feeRecipient` (except the last 7 days' earnings).
 - No owner on the token (renounced in the constructor), no mint, no upgradeability.
@@ -51,12 +51,21 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 8 | Info: expired stock goes to the claimer when the fee recipient is blocked | Refused expired amounts stay in `recycledHeld` for `sendRecycled`; `test_audit8_expiredStockHeldWhenFeeRecipientBlocked`. |
 | 9 | Info: ETH-router trades logged with tx.origin | The hook decodes the user from hookData for both routers; `test_audit9_ethRouterTradeLogsRealBuyer`. |
 
-## 5. Known and accepted
+## 5. Resolved: IMD Swarm re-check f1d5def3 (on commit ece5d4c)
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | Medium: `stockRoundLimit` reads same-transaction liquidity, so JIT liquidity re-enables sandwiching a thin stock pool | Every purchase must receive ≥ 97% of what Chainlink's stock/USD and USDG/USD feeds imply (`minStockOut`, checked in `unlockCallback`); otherwise `PriceOff` and the stock is skipped this round. AMC had no feed and was replaced by GME. `test_recheck1_oracleStopsJitSandwichOfThinStockPool` replays the report's sequence (round skipped, attacker loses); also `test_recheck1_priceAwayFromOracle_skipsOnlyThatStock`, `test_recheck1_staleFeed_holdsThatStock`. |
+| 2 | Low: a zero `stockRoundLimit` removed the limit and the swap crossed to a far resting position | Zero limit: the round is credited as IMD without any swap; `test_recheck2_zeroLiquidityRoundPaidAsImd_noSwap`. |
+| 3 | Low: `NotEnoughGas` made claims fail when a round became due after the gas estimate | Too little gas now skips the stock (no fallback, no revert); `test_lowGasClaim_succeeds_skipsStocks_neverTurnsThemIntoImd`. The website sends claims with a high gas limit so purchases run. |
+| 4 | Info: README described the removed 30-day release and an old test count | Updated. |
+| 5 | Info: AUDIT.md listed "a router buy resets the expiry timer" as accepted | Removed: a buy is not activity since fix 4 of 78c00339. |
+
+## 6. Known and accepted
 
 - **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight, so a gift after a distribution can delay older rewards' expiry by up to 7 days, to nobody's gain. Documented in the contract notice.
-- A buy delivered by a router to another address resets that address's expiry timer (costs the buyer 4%).
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.
-- Conversion has no minimum output; safety rests on the cap and spacing. Fixed routes can't be changed after deployment.
+- The IMD → USDG hop has no oracle (IMD has no Chainlink feed); it rests on the 20 IMD round ceiling and the IMD/USDG pool's depth. The stock hop is checked against Chainlink. Fixed routes can't be changed after deployment.
 - Anyone able to make a purchase fail on purpose (e.g. an LP pulling a stock pool's liquidity in the same transaction) can turn that round's stock share into IMD; holders still receive its full value in IMD.
 - A reverse split of a stock token that shrinks this contract's balance would leave the last claimers short.
 - Stock tokens are restricted for US persons and filtered at the sequencer; not modelled in tests.

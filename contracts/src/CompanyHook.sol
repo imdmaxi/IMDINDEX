@@ -29,7 +29,7 @@ import {SafeTransfer} from "./lib/SafeTransfer.sol";
 ///         to remove it (locked forever), and every swap pays 4% of its IMD side:
 ///           - 1% protocol fee -> `feeRecipient`
 ///           - 3% holder fee   -> $COMPANY holders, pro rata: half in IMD, half converted into five stock tokens
-///             (NVDA, GOOGL, AAPL, AMC, MSTR; 10% each, see CompanyToken)
+///             (NVDA, GOOGL, AAPL, GME, MSTR; 10% each, see CompanyToken)
 ///         Exposes `launches`, `poolKey` and `flush`, which CompanyRouter and CompanyEthRouter use.
 /// @dev Must be deployed at an address whose low 14 bits equal `HOOK_FLAGS` (mine a CREATE2 salt).
 contract CompanyHook is IHooks, IUnlockCallback {
@@ -423,7 +423,7 @@ contract CompanyHook is IHooks, IUnlockCallback {
     // ---------------------------------------------------------------- Views
 
     function metadata() public pure returns (string memory) {
-        return '{"description":"The Zero Person Billion Dollar Company ($COMPANY): every trade pays 3% to holders, half in IMD and half in NVDA, GOOGL, AAPL, AMC and MSTR stock tokens."}';
+        return '{"description":"The Zero Person Billion Dollar Company ($COMPANY): every trade pays 3% to holders, half in IMD and half in NVDA, GOOGL, AAPL, GME and MSTR stock tokens."}';
     }
 
     function poolKey(address t) public view returns (PoolKey memory key) {

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; manifest-src 'self'; connect-src https: wss:; base-uri 'none'; form-action 'none'; object-src 'none'" />
-<meta name="description" content="Hold $COMPANY and get paid in stocks. Every trade pays 3% to holders: half in IMD, half in NVDA, GOOGL, AAPL, AMC and MSTR." />
+<meta name="description" content="Hold $COMPANY and get paid in stocks. Every trade pays 3% to holders: half in IMD, half in NVDA, GOOGL, AAPL, GME and MSTR." />
 <title>The Zero Person Billion Dollar Company</title>
 <link rel="icon" href="/favicon.ico" sizes="48x48" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -329,7 +329,7 @@ footer p { max-width: 95ch; }
       <div class="wrap">
         <div class="hero-copy rise">
           <h1>Hold the company.<br />Earn stocks.</h1>
-          <p>A 3% fee on every $COMPANY trade pays holders: half in IMD, half in NVDA, GOOGL, AAPL, AMC and MSTR.</p>
+          <p>A 3% fee on every $COMPANY trade pays holders: half in IMD, half in NVDA, GOOGL, AAPL, GME and MSTR.</p>
           <div class="cta-row">
             <a class="btn on-sky" href="#swap">Buy $COMPANY <span aria-hidden="true">→</span></a>
             <a class="btn glass" href="#docs">How it works</a>
@@ -391,8 +391,8 @@ footer p { max-width: 95ch; }
           <h2>Where the 3% goes</h2>
           <p>The hook takes 4% of every swap. 1% runs the protocol and 3% belongs to holders, split like this.</p>
         </div>
-        <div class="split" role="img" aria-label="Holder fee split: 50% IMD, 10% each NVDA, GOOGL, AAPL, AMC, MSTR">
-          <div class="s-imd">IMD · 50%</div><div class="s-stk">NVDA</div><div class="s-stk">GOOGL</div><div class="s-stk">AAPL</div><div class="s-stk">AMC</div><div class="s-stk">MSTR</div>
+        <div class="split" role="img" aria-label="Holder fee split: 50% IMD, 10% each NVDA, GOOGL, AAPL, GME, MSTR">
+          <div class="s-imd">IMD · 50%</div><div class="s-stk">NVDA</div><div class="s-stk">GOOGL</div><div class="s-stk">AAPL</div><div class="s-stk">GME</div><div class="s-stk">MSTR</div>
         </div>
       </section>
 
@@ -529,7 +529,7 @@ footer p { max-width: 95ch; }
         <div class="grid g3">
           <div class="card prose"><span class="tiny">Minimum holding</span><h3>100,000 $COMPANY</h3><p>Wallets below it earn nothing. You earn from the moment you reach it, never retroactively, and keep what you earned if you drop below.</p></div>
           <div class="card prose"><span class="tiny">Expiry</span><h3>7 days</h3><p>You're active when you claim or send $COMPANY (or receive it for the first time). Buying alone doesn't count, so claim at least once a week. After 7 inactive days, rewards older than 7 days go to the protocol address.</p></div>
-          <div class="card prose"><span class="tiny">Stock buying</span><h3>20 IMD per round</h3><p>Each claim buys stocks with at most 20 IMD (and never more than 0.25% of the IMD/USDG pool or what each stock's own pool can take), and each stock at most once a minute. That keeps sandwich attacks unprofitable.</p></div>
+          <div class="card prose"><span class="tiny">Stock buying</span><h3>20 IMD per round</h3><p>Each claim buys stocks with at most 20 IMD (and never more than 0.25% of the IMD/USDG pool or what each stock's own pool can take), and each stock at most once a minute. Every purchase is also checked against Chainlink's price: if the pool's price is off by more than 3%, that stock waits for the next round.</p></div>
         </div>
       </section>
 
@@ -548,6 +548,7 @@ footer p { max-width: 95ch; }
           <details><summary>What happens if I sell part of my balance?</summary><p>Everything you earned stays yours. Future rewards follow your new balance, or stop if you drop below 100,000.</p></details>
           <details><summary>Why did my stock rewards change size?</summary><p>They depend on trading volume, when stocks were last bought, and the price each stock was bought at.</p></details>
           <details><summary>Can anyone change the rules?</summary><p>No. The token has no owner and no admin functions. The hook's owner can only open the pool once and change the protocol fee address.</p></details>
+          <details><summary>How are stock prices protected?</summary><p>Each purchase must get at least 97% of the stock that Chainlink's price feed says the money is worth. If someone pushes a pool's price, or a feed is out of date, that stock simply waits for a later round.</p></details>
           <details><summary>What if a stock can't be bought?</summary><p>Then that stock's share is paid to holders as IMD instead, in the same claim. You never lose the value; you just receive it as IMD for that round.</p></details>
           <details><summary>Are these real shares?</summary><p>They are Robinhood Stock Tokens: tokens tracking the stock, not brokerage shares, with no voting rights. They aren't offered to US persons, and Robinhood can block addresses.</p></details>
           <details><summary>Has it been audited?</summary><p>Not yet. Treat it as unaudited software until an audit is published.</p></details>
@@ -593,18 +594,18 @@ const CONFIG = {
     { sym: "NVDA", name: "NVIDIA", addr: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", share: 10, tile: "#4f7a12", pool: "0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5", tokenIs0: false },
     { sym: "GOOGL", name: "Alphabet Class A", addr: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", share: 10, tile: "#2f5fb3", pool: "0xd4ecb79fdc521d7725d22b33ed43cb4e47aa96bfad76aa29577e3151f723ac5e", tokenIs0: true },
     { sym: "AAPL", name: "Apple", addr: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", share: 10, tile: "#3d3d3f", pool: "0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb", tokenIs0: false },
-    { sym: "AMC", name: "AMC Entertainment", addr: "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B", share: 10, tile: "#a8282e", pool: "0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d", tokenIs0: true },
+    { sym: "GME", name: "GameStop", addr: "0x1b0E319c6A659F002271B69dB8A7df2F911c153E", share: 10, tile: "#a8282e", pool: "0x3d436b4fdc532c61a0bf15d6cae80a66eb8f28ee9daec34dbec4b5bc9964063b", tokenIs0: true },
     { sym: "MSTR", name: "Strategy", addr: "0xec262a75e413fAfD0dF80480274532C79D42da09", share: 10, tile: "#c46a12", pool: "0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe", tokenIs0: false },
   ],
 };
 const MIN_HOLDING = 100000;
 // Prices read from the same pools on 7 Oct 2026, shown until live reads succeed.
-const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 240.12, GOOGL: 347.71, AAPL: 334.52, AMC: 2.95, MSTR: 161.37 } };
+const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 240.12, GOOGL: 347.71, AAPL: 334.52, GME: 24.75, MSTR: 161.37 } };
 // Example figures for the hero dashboard and the Portfolio page until real data exists (always labelled "Example").
 const EXAMPLE = {
   balance: 4835239, share: 0.48, lastActiveDaysAgo: 2,
-  rewards: { IMD: 12.41, NVDA: 0.0213, GOOGL: 0.0147, AAPL: 0.0153, AMC: 1.73, MSTR: 0.0317 },
-  latest: { NVDA: 0.0412, GOOGL: 0.0284, AAPL: 0.0296, AMC: 3.34, MSTR: 0.0612 },
+  rewards: { IMD: 12.41, NVDA: 0.0213, GOOGL: 0.0147, AAPL: 0.0153, GME: 0.206, MSTR: 0.0317 },
+  latest: { NVDA: 0.0412, GOOGL: 0.0284, AAPL: 0.0296, GME: 0.404, MSTR: 0.0612 },
   bars: [8, 10, 9, 13, 15, 14, 19, 22, 21, 26, 30, 29, 35, 41, 39, 47, 53, 60],
 };
 const STEPS = [
@@ -856,7 +857,8 @@ $("claim-btn").addEventListener("click", async () => {
   try {
     $("claim-btn").disabled = true;
     setStatus(st, "Confirm the claim in your wallet…");
-    const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim();
+    // A high limit lets the claim buy waiting stocks (each purchase needs 1,000,000 gas available); only gas used is charged.
+    const tx = await new ethers.Contract(CONFIG.token, ABI.token, state.signer).claim({ gasLimit: 8_000_000n });
     setStatus(st, "Claiming… " + short(tx.hash));
     await tx.wait();
     setStatus(st, "Claimed. Your IMD and stocks are in your wallet.", "ok");

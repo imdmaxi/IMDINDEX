@@ -25,12 +25,18 @@ interface ICompanyHook {
     function IMD() external view returns (address);
 }
 
+/// @dev Chainlink AggregatorV3 (Robinhood Chain stock and USDG/USD feeds, 8 decimals).
+interface IPriceFeed {
+    function decimals() external view returns (uint8);
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
+}
+
 /// @title CompanyToken ($COMPANY)
 /// @notice The Zero Person Billion Dollar Company. Fixed 1,000,000,000 supply, traded in a Uniswap v4 pool against IMD
 ///         through CompanyHook, which charges 4% of every swap: 1% protocol, 3% to $COMPANY holders pro rata. The
 ///         holder share is paid in six assets:
 ///           - 50% in IMD, credited at once;
-///           - 10% each in NVDA, GOOGL, AAPL, AMC and MSTR Robinhood stock tokens. That IMD waits in a per-stock
+///           - 10% each in NVDA, GOOGL, AAPL, GME and MSTR Robinhood stock tokens. That IMD waits in a per-stock
 ///             reserve until it is converted (IMD -> USDG -> stock, Uniswap v4 pools fixed at deployment), then
 ///             the stock bought is credited to holders.
 ///
@@ -73,7 +79,8 @@ contract CompanyToken is IUnlockCallback {
     error NotEligible();
     error NotPoolManager();
     error NotSelf();
-    error NotEnoughGas();
+    error PriceOff();
+    error BadFeed();
     error BadAsset();
     error BadAmount();
     error BadPool();
@@ -101,7 +108,7 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Rewards of a wallet inactive for longer than this expire (except those earned within it).
     uint256 public constant INACTIVITY_PERIOD = 7 days;
 
-    /// @notice Reward assets: 0 = IMD, 1..5 = NVDA, GOOGL, AAPL, AMC, MSTR.
+    /// @notice Reward assets: 0 = IMD, 1..5 = NVDA, GOOGL, AAPL, GME, MSTR.
     uint256 public constant ASSETS = 6;
     uint256 public constant BPS = 10_000;
     /// @notice Share of each holder-fee distribution set aside for each stock; IMD gets the rest (50%).
@@ -122,6 +129,12 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Gas each stock's purchase gets. A fixed budget means a purchase fails only for a real reason (the
     ///         stock token or its pool refusing it), never because a caller sent a claim with too little gas.
     uint256 public constant CONVERT_GAS = 1_000_000;
+    /// @notice A stock purchase must receive at least this close to what Chainlink's prices imply (USDG/USD and the
+    ///         stock's /USD feed); otherwise the stock is skipped this round (audit f1d5def3, finding 1). Covers the
+    ///         pool fee (up to 1%), price impact of a capped round and the feeds' 0.5% deviation threshold.
+    uint256 public constant ORACLE_TOLERANCE_BPS = 300;
+    /// @notice A feed older than this (equity feeds pause over weekends and holidays) holds that stock's rounds.
+    uint256 public constant MAX_ORACLE_AGE = 4 days;
 
     uint256 internal constant MAGNITUDE = 2 ** 128;
     uint256 internal constant Q96 = 2 ** 96;
@@ -148,6 +161,13 @@ contract CompanyToken is IUnlockCallback {
     Pool public imdUsdPool;
     /// @notice USDG/stock pool of each stock (index 0 unused).
     Pool[ASSETS] public stockPools;
+    /// @notice Chainlink USD price feed of each stock (index 0 unused), fixed at deployment.
+    address[ASSETS] public priceFeeds;
+    /// @notice Chainlink USDG/USD feed.
+    address public immutable usdFeed;
+    /// @dev 10^decimals of USDG and of each stock, read at deployment (USDG 6, stock tokens 18).
+    uint256 internal immutable _usdUnit;
+    uint256[ASSETS] internal _unit;
 
     /// @notice Always the zero address: ownership is renounced in the constructor. The token has no function that
     ///         checks it (nothing an owner could do), and nothing can ever set it again.
@@ -208,7 +228,15 @@ contract CompanyToken is IUnlockCallback {
     /// @param pools_ the USDG/stock v4 pool (no hooks) of each stock, same order
     /// @dev Every pool must already exist. The whole supply goes to the hook, whose one-time `openPool` locks it in
     ///      the pool.
-    constructor(address hook_, address usd_, Pool memory imdUsdPool_, address[5] memory stocks, Pool[5] memory pools_) {
+    constructor(
+        address hook_,
+        address usd_,
+        Pool memory imdUsdPool_,
+        address[5] memory stocks,
+        Pool[5] memory pools_,
+        address usdFeed_,
+        address[5] memory feeds_
+    ) {
         ICompanyHook h = ICompanyHook(hook_);
         hook = hook_;
         router = h.router();
@@ -216,6 +244,9 @@ contract CompanyToken is IUnlockCallback {
         poolManager = h.poolManager();
         quote = h.IMD();
         usd = usd_;
+        _checkFeed(usdFeed_);
+        usdFeed = usdFeed_;
+        _usdUnit = 10 ** IPriceFeed(usd_).decimals();
 
         assets[0] = quote;
         imdUsdPool = imdUsdPool_;
@@ -230,6 +261,9 @@ contract CompanyToken is IUnlockCallback {
             stockPools[i + 1] = pools_[i];
             lastConvert[i + 1] = block.timestamp;
             _checkPool(usd_, s, pools_[i]);
+            _checkFeed(feeds_[i]);
+            priceFeeds[i + 1] = feeds_[i];
+            _unit[i + 1] = 10 ** IPriceFeed(s).decimals();
         }
 
         balanceOf[hook_] = totalSupply;
@@ -551,15 +585,25 @@ contract CompanyToken is IUnlockCallback {
             if (block.timestamp < lastConvert[a] + CONVERT_INTERVAL) continue;
             uint256 imdIn = pendingConvert[a];
             if (imdIn > cap) imdIn = cap;
-            uint256 poolLimit = stockRoundLimit(a);
-            if (imdIn > poolLimit) imdIn = poolLimit == 0 ? imdIn : poolLimit; // an empty pool fails below -> IMD
             if (imdIn == 0) continue;
-            // Refuse rather than let a low-gas call make purchases fail and turn stock rewards into IMD. With this
-            // much left, the call below always gets its full CONVERT_GAS (EIP-150 keeps 1/64 back).
-            if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) revert NotEnoughGas();
+            uint256 poolLimit = stockRoundLimit(a);
+            // No liquidity at the stock pool's price: a swap would cross to whatever position sits next, at its
+            // price (audit f1d5def3, finding 2). Hand this round to holders as IMD without swapping.
+            if (poolLimit == 0) {
+                _fallBackToImd(a, imdIn);
+                continue;
+            }
+            if (imdIn > poolLimit) imdIn = poolLimit;
+            // A missing or stale price feed holds the stock until it updates (no fallback: value waits, not moves).
+            if (!_feedsFresh(a)) continue;
+            // Too little gas for a full CONVERT_GAS: skip the stock, never fall back, so a low-gas caller can't turn
+            // stock into IMD and a claim never fails on it (audit f1d5def3, finding 3).
+            if (gasleft() < (CONVERT_GAS * 64) / 63 + 50_000) continue;
             try this.convertStock{gas: CONVERT_GAS}(a, imdIn) returns (uint256 out) {
                 stockOut[a] = out;
-            } catch {
+            } catch (bytes memory reason) {
+                // Price away from Chainlink's: someone may be moving the pool. Skip, try again next round.
+                if (reason.length >= 4 && bytes4(reason) == PriceOff.selector) continue;
                 _fallBackToImd(a, imdIn);
             }
         }
@@ -599,6 +643,7 @@ contract CompanyToken is IUnlockCallback {
 
         uint256 usdOut = _swapExactIn(_key(quote, usd, imdUsdPool), quote, imdIn);
         uint256 stockOut = _swapExactIn(_key(usd, assets[asset], stockPools[asset]), usd, usdOut);
+        if (stockOut < minStockOut(asset, usdOut)) revert PriceOff();
 
         pm.sync(Currency.wrap(quote));
         quote.transferOut(poolManager, imdIn);
@@ -664,6 +709,37 @@ contract CompanyToken is IUnlockCallback {
         return Currency.unwrap(ik.currency0) == quote
             ? FullMath.mulDiv(FullMath.mulDiv(usdLimit, Q96, ip), Q96, ip)  // USDG per IMD: IMD = USDG / price
             : FullMath.mulDiv(FullMath.mulDiv(usdLimit, ip, Q96), ip, Q96); // IMD per USDG: IMD = USDG * price
+    }
+
+    /// @notice Least stock a purchase with `usdIn` USDG (6 decimals) must receive: its value at Chainlink's USDG/USD
+    ///         and stock/USD prices, less ORACLE_TOLERANCE_BPS. Reverts PriceOff when a feed is unusable.
+    function minStockOut(uint256 asset, uint256 usdIn) public view returns (uint256) {
+        if (asset == 0 || asset >= ASSETS) revert BadAsset();
+        (bool okU, uint256 usdgUsd) = _readFeed(usdFeed);
+        (bool okS, uint256 stockUsd) = _readFeed(priceFeeds[asset]);
+        if (!okU || !okS) revert PriceOff();
+        // both feeds have 8 decimals: stock = usdIn x (USDG/USD) / (stock/USD), rescaled from USDG to stock units
+        uint256 fair = FullMath.mulDiv(usdIn * usdgUsd, _unit[asset], stockUsd * _usdUnit);
+        return (fair * (BPS - ORACLE_TOLERANCE_BPS)) / BPS;
+    }
+
+    function _feedsFresh(uint256 asset) internal view returns (bool) {
+        (bool okU,) = _readFeed(usdFeed);
+        (bool okS,) = _readFeed(priceFeeds[asset]);
+        return okU && okS;
+    }
+
+    /// @dev Latest answer if it is positive and no older than MAX_ORACLE_AGE; never reverts.
+    function _readFeed(address feed) internal view returns (bool ok, uint256 price) {
+        (bool success, bytes memory ret) = feed.staticcall(abi.encodeWithSelector(IPriceFeed.latestRoundData.selector));
+        if (!success || ret.length < 160) return (false, 0);
+        (, int256 answer,, uint256 updatedAt,) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
+        if (answer <= 0 || updatedAt == 0 || updatedAt + MAX_ORACLE_AGE < block.timestamp) return (false, 0);
+        return (true, uint256(answer));
+    }
+
+    function _checkFeed(address feed) internal view {
+        if (feed.code.length == 0 || IPriceFeed(feed).decimals() != 8) revert BadFeed();
     }
 
     /// @notice v4 pool keys of the conversion route for stock `asset`: IMD/USDG, then USDG/stock.

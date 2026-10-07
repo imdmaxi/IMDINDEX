@@ -10,7 +10,7 @@ A fixed-supply token on Robinhood Chain (chain ID 4663), traded in a Uniswap v4 
 | NVDA (NVIDIA) | 10% | `0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC` |
 | GOOGL (Alphabet) | 10% | `0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3` |
 | AAPL (Apple) | 10% | `0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9` |
-| AMC (AMC Entertainment) | 10% | `0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B` |
+| GME (GameStop) | 10% | `0x1b0E319c6A659F002271B69dB8A7df2F911c153E` |
 | MSTR (Strategy) | 10% | `0xec262a75e413fAfD0dF80480274532C79D42da09` |
 
 The stocks are Robinhood Stock Tokens. Their addresses were checked on-chain on 2026-10-07: each one's symbol and name, and that all of them use the same official Robinhood token beacon (`0xe10b…1b00`).
@@ -27,7 +27,8 @@ The stocks are Robinhood Stock Tokens. Their addresses were checked on-chain on 
     - **10% for each of the 5 stocks.** That IMD waits in a reserve per stock until it is converted.
 - **Conversion happens when people claim:** every `claim()` first converts the waiting reserves. It swaps them along IMD → USDG → stock, through Uniswap v4 pools fixed at deployment, and credits the stock bought to holders pro rata, including the person claiming. No keeper or bot is needed. Anyone can also call `convert()` to do the same without claiming.
   - Limits: one round spends at most `maxConvert()` IMD: 0.25% of the IMD/USDG pool's IMD depth, and never more than a fixed **20 IMD** (`MAX_ROUND_IMD`), shared by the 5 stocks. The fixed ceiling matters because the depth is read in the same transaction and could be inflated with just-in-time liquidity. Each stock's part is also limited by its own USDG/stock pool (`stockRoundLimit`: half the pool fee times its depth). At these sizes, sandwiching either swap costs more in pool fees than it can gain. Each stock converts at most once a minute, so claiming many times in one transaction can't sell more IMD at a manipulated price. Larger reserves convert over later claims.
-  - **A stock that can't be bought is paid as IMD instead.** If a purchase fails (its token refuses this contract, or its pool can't fill the swap), that round's IMD for the stock is credited to holders as IMD in the same claim, and the claimer receives their share at once. Each purchase runs with a fixed gas budget (`CONVERT_GAS`, 1,000,000; real purchases use about 250,000–300,000), and a claim sent with too little gas is refused, so nobody can force purchases to fail to turn stock rewards into IMD.
+  - **Chainlink price check.** Every stock purchase must receive at least 97% of what Chainlink's prices imply (the stock's `/USD` feed and USDG/USD on Robinhood Chain). If the pool's price has been pushed away from Chainlink's, or a feed is more than 4 days old, that stock is **skipped** this round (not converted to IMD) and tried again next round. A price manipulated inside a transaction can't pass this, however thin the pool. Feeds: NVDA, GOOGL, AAPL, GME and MSTR, listed in `CompanyConfig.sol`.
+  - **A stock that can't be bought is paid as IMD instead.** If a purchase fails (its token refuses this contract, or its pool can't fill the swap), that round's IMD for the stock is credited to holders as IMD in the same claim, and the claimer receives their share at once. Each purchase runs with a fixed gas budget (`CONVERT_GAS`, 1,000,000; real purchases use about 250,000–300,000), and a claim with too little gas left simply skips the stock purchases (it still pays out), so nobody can force purchases to fail to turn stock rewards into IMD. The website sends claims with a high gas limit so purchases run; unused gas isn't charged.
 - **Minimum holding: 100,000 $COMPANY.** Only wallets holding at least 100,000 earn rewards. A wallet earns from the moment it reaches the minimum, never retroactively, and keeps what it earned if it drops below.
 - **Claiming:** `claim()` pays all 6 assets in one transaction. Rewards accrue automatically for every holder, at constant (O(1)) cost, and each holder withdraws them. Because each claim also runs the swaps, it costs more gas than a plain claim.
 - **Expiry (7 days):** a wallet is active when it claims, sends tokens, pulls tokens itself, or receives tokens for the first time. **Buying alone doesn't count**, because anyone could fake a "buy" for another wallet: claim at least once a week to keep everything. When a wallet has been inactive for more than 7 days, its unclaimed rewards in every asset expire, except what it earned in the last 7 days. Anyone can call `recycle(holder)` to send them to the protocol address, and `claim()` does this first for the caller. Known limits: tokens a wallet is sent during its last 7 days count toward its "recent" rewards, so a gift can delay the expiry of older rewards by up to 7 days (IMD Swarm cbe092d6 finding 1 on the same design). If a stock token refuses the fee address, expired stock is held for the protocol (`recycledHeld`) and sent later with `sendRecycled`; it never goes back to the claimer.
@@ -51,7 +52,7 @@ Conversion route (all pools hookless, ids checked against Uniswap's PositionMana
 | USDG/NVDA | `0x6444a8e0b267406a15db74ca00c4a24bdfa81ed3180f5b6d0851f8ed6f4f29c5` | 0.01% |
 | GOOGL/USDG | `0xd4ecb79fdc521d7725d22b33ed43cb4e47aa96bfad76aa29577e3151f723ac5e` | 0.3% |
 | USDG/AAPL | `0xc748f4671a867db48b552f6b7650bf3255e05f80f00e3f7aad1b17ccb7898fdb` | 0.3% |
-| AMC/USDG | `0x7499938c352d5b5b8f0c648722aca5ee964ef9b85c3a3041f1ec379726291d9d` | 0.1% |
+| GME/USDG | `0x3d436b4fdc532c61a0bf15d6cae80a66eb8f28ee9daec34dbec4b5bc9964063b` | 1% |
 | USDG/MSTR | `0x319bac87e616a89e241c10aeb8afd4892a852cdd8b373cd9765ecddc40b87cfe` | 0.25% |
 
 Uniswap v4 on Robinhood Chain: PoolManager `0x8366a39CC670B4001A1121B8F6A443A643e40951`. USDG: `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`.
@@ -70,7 +71,7 @@ forge build
 
 ```bash
 cd contracts
-forge test                                                         # 31 unit, attack and fuzz tests on a real v4 PoolManager
+forge test                                                         # 41 unit, attack and fuzz tests on a real v4 PoolManager
 FORK_RPC=https://robinhood.drpc.org forge test --mc CompanyForkTest -vv   # live mainnet state: real IMD, USDG, stocks and pools
 ```
 
@@ -79,7 +80,8 @@ The tests cover:
 - the 100,000 $COMPANY minimum: small wallets earn nothing, crossing it starts earning, dropping below keeps what was earned
 - conversion: run by `claim()`, the cap shared by the five stocks, at most one round per minute even with many claims in one block, and all five stocks
 - pro-rata payouts and transfers
-- blocked holders and blocked stocks, including the 30-day release
+- blocked holders and blocked stocks, and the IMD fallback when a stock can't be bought
+- the Chainlink price check (manipulated, drifted or stale prices skip a stock) and every audit finding's reproduction
 - expiry: inactive wallets, strict claims, gifts versus buys
 - the flash-borrow guard
 - `permit`
@@ -124,7 +126,7 @@ Scanners can only be checked after deployment. Before announcing, deploy, run `s
 
 - **Stock token compliance.** Robinhood stock tokens are not offered to US persons. They enforce a per-address blocklist, and Robinhood Chain also filters transactions at the sequencer. If Robinhood blocks the token contract, that stock can't be bought, and its share is paid to holders as IMD instead. If Robinhood blocks a holder, that holder can't receive that stock. The fork test checks the token contracts, but not sequencer-level filtering.
 - **Regulatory.** A token whose holders receive shares of a fee paid in tokenized equities may be treated as a security in some jurisdictions. Get legal advice before launch.
-- **Fixed routes.** The conversion pools can't be changed after deployment. If liquidity leaves them, conversion slows or stops, and the 30-day release applies.
+- **Fixed routes.** The conversion pools can't be changed after deployment. If liquidity leaves them, rounds shrink with the pool, and a pool with no liquidity at its price has that round paid to holders as IMD.
 - **Conversion pricing.** Conversions run at the pool price of the moment and have no minimum output. The 20 IMD round ceiling, the per-stock pool limits and the 1-minute spacing keep sandwiching unprofitable while the IMD/USDG pool holds more than about 2,200 IMD of depth (about 19,750 at launch).
 - **Stock rewards follow holders at purchase time.** Stocks are credited to whoever holds when they are bought (at a claim or `convert()`), not when the fee was paid. Conversions run at most a minute apart whenever anyone claims, which keeps the waiting amount small.
 - **Partial fills.** Swaps through other apps that set a price limit must fill completely; a partial fill is rejected (`PartialFill`) instead of overpaying the fee.

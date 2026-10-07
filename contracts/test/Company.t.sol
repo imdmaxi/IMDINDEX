@@ -20,7 +20,7 @@ import {CompanyToken} from "../src/CompanyToken.sol";
 import {CompanyRouter} from "../src/CompanyRouter.sol";
 import {CompanyEthRouter} from "../src/CompanyEthRouter.sol";
 import {DeployLib} from "../script/DeployLib.sol";
-import {MockERC20, MockStock} from "./Mocks.sol";
+import {MockERC20, MockStock, MockFeed} from "./Mocks.sol";
 
 /// @notice Borrows the pool's $COMPANY inside an unlock, then tries to distribute, convert or claim with it.
 /// @notice Audit finding 4: moves 1 wei of $COMPANY out of the PoolManager to `victim`, repaid from its own balance.
@@ -91,6 +91,8 @@ contract CompanyTest is Test {
     MockERC20 imd;
     MockERC20 usdg;
     MockStock[5] stocks;
+    MockFeed usdFeed;
+    MockFeed[5] feeds;
     CompanyHook hook;
     CompanyToken token;
     CompanyRouter router;
@@ -109,9 +111,12 @@ contract CompanyTest is Test {
         pm = new PoolManager(address(this));
         imd = new MockERC20("Identity.md", "IMD");
         usdg = new MockERC20("Global Dollar", "USDG");
-        string[5] memory names = ["NVDA", "GOOGL", "AAPL", "AMC", "MSTR"];
+        string[5] memory names = ["NVDA", "GOOGL", "AAPL", "GME", "MSTR"];
+        // all test pools trade 1:1 with USDG, so every feed reads $1
+        usdFeed = new MockFeed(1e8);
         for (uint256 i; i < 5; i++) {
             stocks[i] = new MockStock(names[i]);
+            feeds[i] = new MockFeed(1e8);
         }
         extRouter = new PoolSwapTest(pm);
         lp = new PoolModifyLiquidityTest(pm);
@@ -166,7 +171,9 @@ contract CompanyTest is Test {
         router = CompanyRouter(payable(hook.router()));
         ethRouter = CompanyEthRouter(payable(hook.ethRouter()));
 
-        token = new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), stockAddrs, pools);
+        token = new CompanyToken(
+            address(hook), address(usdg), CompanyToken.Pool(9000, 90), stockAddrs, pools, address(usdFeed), _feedAddrs()
+        );
         vm.prank(owner);
         hook.openPool(address(token));
 
@@ -186,6 +193,12 @@ contract CompanyTest is Test {
 
     function _flags() internal pure returns (uint160) {
         return uint160((1 << 13) | (1 << 11) | (1 << 7) | (1 << 6) | (1 << 3) | (1 << 2));
+    }
+
+    function _feedAddrs() internal view returns (address[5] memory f) {
+        for (uint256 i; i < 5; i++) {
+            f[i] = address(feeds[i]);
+        }
     }
 
     function _key(address a, address b, uint24 fee, int24 ts) internal pure returns (PoolKey memory) {
@@ -245,14 +258,20 @@ contract CompanyTest is Test {
             pools[i] = CompanyToken.Pool(3000, 60);
         }
         vm.expectRevert(CompanyToken.BadPool.selector);
-        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(3000, 60), s, pools);
+        new CompanyToken(
+            address(hook), address(usdg), CompanyToken.Pool(3000, 60), s, pools, address(usdFeed), _feedAddrs()
+        );
         pools[2] = CompanyToken.Pool(500, 10);
         vm.expectRevert(CompanyToken.BadPool.selector);
-        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools);
+        new CompanyToken(
+            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
+        );
         pools[2] = CompanyToken.Pool(3000, 60);
         s[4] = s[0];
         vm.expectRevert(CompanyToken.BadAsset.selector);
-        new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools);
+        new CompanyToken(
+            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
+        );
     }
 
     function test_hook_blocksOutsidePoolsAndLiquidity() public {
@@ -490,7 +509,7 @@ contract CompanyTest is Test {
     function test_stockThatCantBeBought_isPaidAsImdInTheSameClaim() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
-        _stock(4).setBlocked(address(token), true); // AMC refuses the token contract
+        _stock(4).setBlocked(address(token), true); // GME refuses the token contract
         vm.warp(block.timestamp + 1 minutes);
         uint256 round = token.maxConvert() / 5;
         uint256 owedImd = token.owed(0);
@@ -498,14 +517,14 @@ contract CompanyTest is Test {
 
         vm.prank(alice);
         uint256[6] memory paid = token.claim();
-        assertEq(paid[4], 0, "no AMC");
+        assertEq(paid[4], 0, "no GME");
         assertGt(paid[1], 0, "other stocks bought and paid");
-        // this round's AMC money went to holders as IMD, at once
+        // this round's GME money went to holders as IMD, at once
         assertEq(token.pendingConvert(4), 6e18 - round, "one round moved");
         assertEq(token.owed(0) + paid[0], owedImd + round, "credited as IMD");
         assertGt(paid[0], aliceImd, "alice got her share of it now");
 
-        // while AMC stays blocked, every round hands the next part over as IMD, until nothing waits
+        // while GME stays blocked, every round hands the next part over as IMD, until nothing waits
         for (uint256 i; i < 10 && token.pendingConvert(4) > 0; i++) {
             vm.warp(block.timestamp + 1 minutes);
             token.convert();
@@ -513,19 +532,138 @@ contract CompanyTest is Test {
         assertEq(token.pendingConvert(4), 0);
     }
 
-    function test_lowGasClaim_isRefused_notTurnedIntoImd() public {
+    function test_lowGasClaim_succeeds_skipsStocks_neverTurnsThemIntoImd() public {
         _buy(alice, 1_000e18);
         _buy(bob, 1_000e18);
         vm.warp(block.timestamp + 1 minutes);
         uint256 pending = token.pendingConvert(1);
-        uint256 owedImd = token.owed(0);
-        // a caller trying to make purchases fail by starving them of gas
+        uint256 aliceImd = token.withdrawableRewardOf(alice, 0);
+        // a claim sent with an estimate made before the round was due (or by someone starving purchases of gas)
         vm.prank(alice);
-        (bool ok, bytes memory ret) = address(token).call{gas: 900_000}(abi.encodeCall(CompanyToken.claim, ()));
-        assertFalse(ok);
-        assertEq(bytes4(ret), CompanyToken.NotEnoughGas.selector);
-        assertEq(token.pendingConvert(1), pending, "nothing moved");
-        assertEq(token.owed(0), owedImd);
+        (bool ok,) = address(token).call{gas: 900_000}(abi.encodeCall(CompanyToken.claim, ()));
+        assertTrue(ok, "the claim goes through");
+        assertEq(token.pendingConvert(1), pending, "stocks skipped, not bought and not turned into IMD");
+        assertEq(imd.balanceOf(alice) >= aliceImd, true);
+        assertEq(token.withdrawableRewardOf(alice, 0), 0, "her IMD was paid");
+        // the next claim with enough gas buys them as usual
+        vm.prank(bob);
+        uint256[6] memory paid = token.claim();
+        assertGt(paid[1], 0);
+    }
+
+    // ------------------------------------------------------------ IMD Swarm re-check f1d5def3
+
+    /// @dev Finding 1 (medium): the auditors' sequence on a thin NVDA pool. The Chainlink check makes the round skip
+    ///      instead of buying at the attacker's price, and the attacker loses money.
+    function test_recheck1_oracleStopsJitSandwichOfThinStockPool() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -999_990e18, 0), "");
+        vm.warp(block.timestamp + 1 minutes);
+        address attacker = makeAddr("attacker");
+        usdg.mint(attacker, 100_000e18);
+        stocks[0].mint(attacker, 100_000e18);
+        bool usdIs0 = address(usdg) < address(stocks[0]);
+        vm.startPrank(attacker);
+        usdg.approve(address(extRouter), type(uint256).max);
+        stocks[0].approve(address(extRouter), type(uint256).max);
+        usdg.approve(address(lp), type(uint256).max);
+        stocks[0].approve(address(lp), type(uint256).max);
+        uint256 before = usdg.balanceOf(attacker) + stocks[0].balanceOf(attacker);
+        // (1) push NVDA's price up (the direction the round's purchase moves it)
+        extRouter.swap(
+            nk,
+            SwapParams(usdIs0, -30e18, usdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1),
+            settings,
+            ""
+        );
+        // (2) mint a large narrow position around the pushed tick
+        (, int24 tick,,) = pm.getSlot0(nk.toId());
+        int24 lower = (tick / 60) * 60 - 60;
+        if (tick < 0 && tick % 60 != 0) lower -= 60;
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(lower, lower + 180, 50_000e18, 0), "");
+        vm.stopPrank();
+        assertGt(token.stockRoundLimit(1), 4e18, "depth reading inflated, as in the report");
+        // (3) the round
+        uint256 pending = token.pendingConvert(1);
+        uint256 nvdaHeld = stocks[0].balanceOf(address(token));
+        token.convert();
+        assertEq(token.pendingConvert(1), pending, "NVDA round skipped (price off Chainlink)");
+        assertEq(stocks[0].balanceOf(address(token)), nvdaHeld, "nothing bought at the attacker's price");
+        // (4) remove the position, (5) swap back
+        vm.startPrank(attacker);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(lower, lower + 180, -50_000e18, 0), "");
+        uint256 nvdaGot = stocks[0].balanceOf(attacker) > 100_000e18 ? stocks[0].balanceOf(attacker) - 100_000e18 : 0;
+        if (nvdaGot > 0) {
+            extRouter.swap(
+                nk,
+                SwapParams(
+                    !usdIs0, -int256(nvdaGot), !usdIs0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+                ),
+                settings,
+                ""
+            );
+        }
+        vm.stopPrank();
+        assertLe(usdg.balanceOf(attacker) + stocks[0].balanceOf(attacker), before, "sandwich not profitable");
+    }
+
+    /// @dev Finding 1, other stocks: a price that drifts more than 3% from Chainlink also just skips that stock.
+    function test_recheck1_priceAwayFromOracle_skipsOnlyThatStock() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        feeds[1].set(0.95e8, block.timestamp); // Chainlink says GOOGL is 5% cheaper than its pool
+        uint256[6] memory out = token.convert();
+        assertEq(out[2], 0, "GOOGL skipped");
+        assertEq(token.pendingConvert(2), 6e18, "GOOGL reserve untouched, not turned into IMD");
+        assertGt(out[1], 0, "NVDA bought");
+    }
+
+    function test_recheck1_staleFeed_holdsThatStock() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 5 days);
+        feeds[0].set(1e8, block.timestamp - 4 days - 1); // NVDA feed older than MAX_ORACLE_AGE
+        for (uint256 i = 1; i < 5; i++) {
+            feeds[i].set(1e8, block.timestamp);
+        }
+        usdFeed.set(1e8, block.timestamp);
+        uint256[6] memory out = token.convert();
+        assertEq(out[1], 0);
+        assertEq(token.pendingConvert(1), 6e18, "waits for a fresh price");
+        assertGt(out[2], 0);
+        vm.expectRevert(CompanyToken.PriceOff.selector);
+        token.minStockOut(1, 1e18);
+    }
+
+    /// @dev Finding 2: no liquidity at the stock pool's price. The round is paid as IMD without a swap, so a resting
+    ///      position far away can't sell into it.
+    function test_recheck2_zeroLiquidityRoundPaidAsImd_noSwap() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
+        // a far-away resting position on the side the purchase moves toward
+        address attacker = makeAddr("attacker");
+        usdg.mint(attacker, 10_000e18);
+        stocks[0].mint(attacker, 10_000e18);
+        vm.startPrank(attacker);
+        usdg.approve(address(lp), type(uint256).max);
+        stocks[0].approve(address(lp), type(uint256).max);
+        bool usdIs0 = address(usdg) < address(stocks[0]);
+        int24 lo = usdIs0 ? int24(46020) : int24(-46080);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(lo, lo + 60, 2_000e18, 0), "");
+        vm.stopPrank();
+        assertEq(token.stockRoundLimit(1), 0);
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 round = token.maxConvert() / 5;
+        uint256 owedImd = token.owed(0);
+        uint256 nvdaHeld = stocks[0].balanceOf(address(token));
+        token.convert();
+        assertEq(stocks[0].balanceOf(address(token)), nvdaHeld, "no NVDA bought from the resting position");
+        assertEq(token.owed(0), owedImd + round, "this round's NVDA money paid as IMD");
     }
 
     // ------------------------------------------------------------ expiry
@@ -861,7 +999,9 @@ contract CompanyTest is Test {
             s[i] = address(stocks[i]);
             pools[i] = CompanyToken.Pool(3000, 60);
         }
-        CompanyToken t2 = new CompanyToken(address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools);
+        CompanyToken t2 = new CompanyToken(
+            address(hook), address(usdg), CompanyToken.Pool(9000, 90), s, pools, address(usdFeed), _feedAddrs()
+        );
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("OwnershipTransferred(address,address)");
         uint256 seen;
