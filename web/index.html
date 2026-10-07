@@ -72,6 +72,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 html, body { margin: 0; }
 body { background: var(--paper); color: var(--ink); font: 16px/1.55 var(--font); -webkit-font-smoothing: antialiased; transition: background-color .3s ease; }
 a { color: inherit; }
@@ -302,6 +303,18 @@ main { display: grid; }
 .rtable td:not(:first-child), .rtable th:not(:first-child) { text-align: right; }
 .asset-cell { display: flex; align-items: center; gap: 12px; }
 .asset-cell span { color: var(--muted); font-size: 13px; }
+.asset-cell .logo-cell { width: 34px; height: 34px; border-radius: 6px; flex: none; display: block; }
+.rtable td:not(:first-child), .rtable th:not(:first-child) { padding-left: 14px; }
+.rtable td.act { width: 1%; white-space: nowrap; }
+.hold td.hbal small { display: none; }
+.add-inline { display: none; border: 0; background: none; padding: 0; margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@media (max-width: 600px) {
+  .hold .col-val, .hold td.act, .hold th:last-child { display: none; }
+  .hold td.hbal small { display: block; color: var(--muted); font-size: 12px; }
+  .hold .add-inline { display: block; }
+  .hold .asset-cell { gap: 10px; }
+  .hold .asset-cell .mono, .hold .asset-cell .logo-cell { width: 28px; height: 28px; }
+}
 
 /* ---------- docs */
 .process .step { min-height: 170px; }
@@ -551,6 +564,14 @@ footer p { max-width: 95ch; }
           <p class="status" id="claim-status" role="status"></p>
         </div>
       </div>
+      <div class="card" style="display:grid;gap:18px">
+        <div class="side-head"><h3>In your wallet <span class="pill warn" id="hold-pill" style="vertical-align:middle;margin-left:6px">Example</span></h3><span class="caps num" id="hold-total">—</span></div>
+        <div class="table-scroll">
+          <table class="rtable hold"><thead><tr><th>Asset</th><th>Balance</th><th class="col-val">Value</th><th><span class="sr-only">Wallet app</span></th></tr></thead><tbody id="hold-rows"></tbody></table>
+        </div>
+        <p style="color:var(--muted);font-size:13px">Claimed stocks are Robinhood Stock Tokens held in your own wallet. If your wallet app doesn't list one, press Add.</p>
+        <p class="status" id="hold-status" role="status"></p>
+      </div>
       <div class="card" id="fee-card" style="display:grid;gap:16px" hidden>
         <div class="side-head"><h3>Protocol fees <span class="pill live" style="vertical-align:middle;margin-left:6px">Fee wallet</span></h3><span class="caps num" id="fee-usd">—</span></div>
         <dl class="kv">
@@ -677,6 +698,7 @@ const SNAPSHOT = { label: "Prices as of 7 Oct 2026", prices: { IMD: 9.80, NVDA: 
 const EXAMPLE = {
   balance: 4835239, share: 0.48, lastActiveDaysAgo: 2,
   rewards: { IMD: 12.41, NVDA: 0.0213, GOOGL: 0.0147, AAPL: 0.0153, GME: 0.206, MSTR: 0.0317 },
+  holdings: { COMPANY: 4835239, IMD: 36.2, NVDA: 0.0842, GOOGL: 0.0571, AAPL: 0.0598, GME: 0.817, MSTR: 0.124 },
   latest: { NVDA: 0.0412, GOOGL: 0.0284, AAPL: 0.0296, GME: 0.404, MSTR: 0.0612 },
   bars: [8, 10, 9, 13, 15, 14, 19, 22, 21, 26, 30, 29, 35, 41, 39, 47, 53, 60],
 };
@@ -941,7 +963,7 @@ async function restoreWallet() {
 }
 $("connect").addEventListener("click", connect);
 if (window.ethereum && window.ethereum.on) {
-  window.ethereum.on("accountsChanged", () => { state.account = null; state.signer = null; $("connect").textContent = "Connect"; connect(); });
+  window.ethereum.on("accountsChanged", () => { state.account = null; state.signer = null; state.holdings = null; $("connect").textContent = "Connect"; connect(); });
   window.ethereum.on("chainChanged", () => location.reload());
 }
 
@@ -965,6 +987,35 @@ function renderPortfolio(p) {
   }).join("");
   $("pf-total").textContent = "Total " + fmtUsd(total, 2);
 }
+// Everything the wallet holds: $COMPANY, IMD and the five stocks, each with an Add button for the wallet app.
+const HOLD_ROWS = () => [{ sym: "COMPANY", label: "$COMPANY", name: "The Company", addr: CONFIG.token }, ...CONFIG.assets.map((a) => ({ ...a, label: a.sym }))];
+function renderHoldings(h, live) {
+  $("hold-pill").textContent = live ? "Your wallet" : "Example"; $("hold-pill").className = "pill " + (live ? "live" : "warn");
+  let total = 0, priced = true;
+  $("hold-rows").innerHTML = HOLD_ROWS().map((a, i) => {
+    const amt = h[a.sym] || 0, price = priceOf(a.sym), usd = amt * price;
+    if (amt > 0 && !price) priced = false;
+    total += usd;
+    const icon = a.sym === "COMPANY" ? `<img class="logo-cell" src="/logo.svg" alt="" />` : mono(a);
+    const add = a.addr ? `<button type="button" class="copy" data-watch="${i}">Add</button>` : "";
+    const value = price ? fmtSmallUsd(usd) : "—";
+    const addInline = a.addr ? `<button type="button" class="add-inline" data-watch="${i}">Add to wallet</button>` : "";
+    return `<tr><td><div class="asset-cell">${icon}<div><b>${a.label}</b><br /><span>${a.name}</span>${addInline}</div></div></td><td class="num hbal">${fmtTok(amt)}<small>${value}</small></td><td class="num col-val">${value}</td><td class="act">${add}</td></tr>`;
+  }).join("");
+  $("hold-total").textContent = "Total " + fmtUsd(total, 2) + (priced ? "" : "+");
+}
+$("hold-rows").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-watch]"); if (!b) return;
+  const a = HOLD_ROWS()[Number(b.dataset.watch)], st = $("hold-status");
+  if (!window.ethereum) { setStatus(st, "No wallet found in this browser.", "err"); return; }
+  try {
+    await ensureChain();
+    const options = { address: a.addr, symbol: a.sym, decimals: 18 };
+    if (a.sym === "COMPANY") options.image = location.origin + "/icon-512.png";
+    const ok = await window.ethereum.request({ method: "wallet_watchAsset", params: { type: "ERC20", options } });
+    setStatus(st, ok ? a.label + " is in your wallet app's token list." : a.label + " wasn't added.", ok ? "ok" : "");
+  } catch (err) { setStatus(st, errMsg(err), "err"); }
+});
 function showExample() {
   $("pf-title").textContent = "Your stake.";
   $("pf-pill").textContent = "Example"; $("pf-pill").className = "pill warn"; $("pf-pill").hidden = false;
@@ -975,6 +1026,7 @@ function showExample() {
       ? "<b style='color:var(--ink)'>Wallet connected.</b> $COMPANY isn't deployed yet, so the figures below are an example."
       : "<b style='color:var(--ink)'>Example wallet.</b> $COMPANY isn't deployed yet. Connect after launch to see your own balance and rewards.";
   renderPortfolio({ balance: EXAMPLE.balance, share: EXAMPLE.share, lastActive: Date.now() / 1000 - EXAMPLE.lastActiveDaysAgo * 86400, rewards: EXAMPLE.rewards });
+  renderHoldings(EXAMPLE.holdings, false);
   $("claim-btn").disabled = true;
 }
 async function loadPortfolio() {
@@ -990,9 +1042,13 @@ async function loadPortfolio() {
       [t, "balanceOf", [me]], [t, "weightOf", [me]], [t, "eligibleSupply"], [t, "rewardsOf", [me]], [t, "lastActive", [me]],
       [h, "pendingHolderFees", [CONFIG.token]], [h, "feeRecipient"], [h, "pendingProtocolFees", [CONFIG.assets[0].addr]],
       ...CONFIG.assets.map((_, i) => [t, "pendingConvert", [i]]),
+      ...CONFIG.assets.map((a) => [new ethers.Contract(a.addr, ABI.erc20, reader), "balanceOf", [me]]),
     ]));
     if (me !== state.account) return;
-    const [bal, weight, elig, rewards, last, held, feeTo, protocol] = r, pc = r.slice(8, 8 + n);
+    const [bal, weight, elig, rewards, last, held, feeTo, protocol] = r, pc = r.slice(8, 8 + n), owned = r.slice(8 + n, 8 + 2 * n);
+    const holdings = { COMPANY: units(bal) }; CONFIG.assets.forEach((a, i) => { holdings[a.sym] = units(owned[i]); });
+    state.holdings = holdings;
+    renderHoldings(holdings, true);
     const rw = {}; CONFIG.assets.forEach((a, i) => { rw[a.sym] = units(rewards[i]); });
     const share = elig > 0n ? units(weight) / units(elig) : 0;
     renderPortfolio({ balance: units(bal), share: share * 100, lastActive: Number(last), rewards: rw });
@@ -1321,6 +1377,8 @@ async function readSpot(at = {}) {
   const s = Number(sqrtP) / 2 ** 96, raw = s * s; // currency1 per currency0, both 18 decimals
   const imdPer = key.currency0.toLowerCase() === CONFIG.token.toLowerCase() ? raw : 1 / raw;
   state.prices.COMPANY = imdPer * priceOf("IMD");
+  if (state.account && state.holdings) renderHoldings(state.holdings, true);
+  else if (!state.account) renderHoldings(EXAMPLE.holdings, false);
   $("p-price").textContent = fmtSig(state.prices.COMPANY);
   $("p-price-imd").textContent = imdPer.toLocaleString("en-US", { maximumSignificantDigits: 4 }) + " IMD";
   $("p-mcap").textContent = fmtUsd(imdPer * 1e9 * priceOf("IMD"), 0) + " · " + fmtNum(imdPer * 1e9, 0) + " IMD";
