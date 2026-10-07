@@ -15,11 +15,20 @@ A fixed-supply token on Robinhood Chain (chain ID 4663), traded in a Uniswap v4 
 
 The stocks are Robinhood Stock Tokens. Their addresses were checked on-chain on 2026-10-07: each one's symbol and name, and that all of them use the same official Robinhood token beacon (`0xe10b…1b00`).
 
-**Status: not deployed, not audited.**
+**Status: live on Robinhood Chain since 2026-10-07** (commit `d9e86c3`). IMD Swarm reviewed every version up to `08ff797` across seven rounds; [`AUDIT.md`](AUDIT.md) maps each finding to its fix. The last change (`d9e86c3`, one rule for paying a stock's share as IMD) was not re-audited.
+
+| Contract | Address |
+| --- | --- |
+| $COMPANY token (`CompanyToken`) | [`0x5417eAEcE3885552e777fCf133254E641449ae73`](https://robinhoodchain.blockscout.com/address/0x5417eAEcE3885552e777fCf133254E641449ae73) |
+| Hook and pool owner (`CompanyHook`) | [`0x8AB5A53c5649f1C1D46E38AD120fD4f86fFC68cc`](https://robinhoodchain.blockscout.com/address/0x8AB5A53c5649f1C1D46E38AD120fD4f86fFC68cc) |
+| IMD router (`CompanyRouter`) | [`0x972Ff3a4e6e2ACe2f33aBFf2FC5521CCa919946e`](https://robinhoodchain.blockscout.com/address/0x972Ff3a4e6e2ACe2f33aBFf2FC5521CCa919946e) |
+| ETH router (`CompanyEthRouter`) | [`0x415b050492a66Aebe3A3b11fbD9b0c9B115C3028`](https://robinhoodchain.blockscout.com/address/0x415b050492a66Aebe3A3b11fbD9b0c9B115C3028) |
+
+Website: [zeropersoncompany.fun](https://www.zeropersoncompany.fun). Launch transactions and block times: [`contracts/deployments/robinhood.json`](contracts/deployments/robinhood.json).
 
 ## How it works
 
-- **Supply and pool:** 1,000,000,000 $COMPANY, all of it single-sided liquidity in one IMD-paired Uniswap v4 pool. `CompanyHook` owns that liquidity and has no function to remove it, so it is locked forever. The starting market cap is about $3,000, set in IMD on deploy day (default 306 IMD, at IMD ≈ $9.80 on 2026-10-07). The hook blocks anyone from creating other pools with it or adding liquidity.
+- **Supply and pool:** 1,000,000,000 $COMPANY, all of it single-sided liquidity in one IMD-paired Uniswap v4 pool. `CompanyHook` owns that liquidity and has no function to remove it, so it is locked forever. The starting market cap was about $3,000, set in IMD on launch day: 324 IMD, at IMD ≈ $9.26 on 2026-10-08. The hook blocks anyone from creating other pools with it or adding liquidity.
 - **Fee: 4% of the IMD side of every swap in the $COMPANY pool**, whichever router sends it: our routers, the Uniswap app, or an aggregator. (Like any token, $COMPANY could also be traded in a separate pool someone else creates; swaps there pay no fee. All the locked liquidity is in this pool.)
   - 1% goes to the protocol. Anyone can call `collectProtocolFees(IMD)` to send it to `0x8F5A29c82e8285Db3B2af8D0caF5404b0f9ce834`.
   - 3% goes to holders, split by `CompanyToken.distribute()`:
@@ -89,9 +98,9 @@ The tests cover:
 
 ## Website
 
-`web/index.html` is a single-page site with no build step: Home, Swap (buy and sell with IMD or ETH), Portfolio (claimable rewards and a Claim button) and Docs. It reads live stock prices from the Robinhood Chain pools. Until the contracts are deployed it shows "pre-launch" states and a clearly labelled example wallet.
+`web/index.html` is a single-page site with no build step: Home, Swap (buy and sell with IMD or ETH), Portfolio (claimable rewards and a Claim button) and Docs. It reads live stock prices from the Robinhood Chain pools. Until a wallet connects, Portfolio shows a clearly labelled example wallet.
 
-After deploying, copy `token`, `hook`, `router` and `ethRouter` from `contracts/deployments/robinhood.json` into `CONFIG` at the top of the script in `web/index.html`. To host it, deploy the `web/` folder to Vercel; `vercel.json` sets the security headers.
+`CONFIG` at the top of the script in `web/index.html` holds the deployed `token`, `hook`, `router` and `ethRouter` from `contracts/deployments/robinhood.json`. To host it, deploy the `web/` folder to Vercel; `vercel.json` sets the security headers.
 
 ## Deploy
 
@@ -100,7 +109,11 @@ cd contracts
 forge script script/Deploy.s.sol --rpc-url robinhood --broadcast --interactive
 ```
 
-The script mines the hook's CREATE2 salt (address flags `0x28CC`), deploys the hook and the token, opens the pool if the broadcasting account is the owner, and writes `deployments/robinhood.json`. Then publish the source:
+The script mines the hook's CREATE2 salt (address flags `0x28CC`), deploys the hook and the token, opens the pool if the broadcasting account is the owner, and writes `deployments/robinhood.json`.
+
+The live launch was signed in the owner's wallet instead, so no private key was used in a terminal. The script was run without `--broadcast`, and a one-off page sent its three simulated transactions from the owner's wallet: the hook through the CREATE2 factory, the token, then `openPool`. The page is in the git history at `6c584bd` (`web/launch.html`). It was taken off the website after the launch.
+
+Then publish the source:
 
 ```bash
 ./script/verify.sh
@@ -136,4 +149,4 @@ Scanners can only be checked after deployment. Before announcing, deploy, run `s
 - **Dividend sniping.** Someone can buy just before a big trade to catch part of its holder fee, then sell. They pay 4% on each side, so it only pays off against trades much larger than their own position.
 - **Late flushes for other routers.** Fees from swaps through other routers (the Uniswap app, aggregators) reach holders at the next CompanyRouter trade or claim, so that trader can share in their own fee.
 - **Launch sniping.** Bots can buy in the launch block.
-- **Not audited.** Get an independent audit before significant value flows through it.
+- **Audit coverage.** IMD Swarm's automated rounds are the only audit. The final change (`d9e86c3`) was not re-audited.

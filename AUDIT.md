@@ -1,6 +1,6 @@
 # Audit brief
 
-What $COMPANY does, what it must guarantee, and where reviewers should look hardest. Everything referenced is in this repository. Nothing is deployed yet.
+What $COMPANY does, what it must guarantee, and where reviewers should look hardest. Everything referenced is in this repository. Deployed on 2026-10-07 from commit `d9e86c3`; the addresses are in the README.
 
 ## 1. The system
 

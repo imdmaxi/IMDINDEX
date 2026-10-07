@@ -17,7 +17,7 @@ verify() {
     [ "$verifier" = blockscout ] && extra=(--verifier-url "$BLOCKSCOUT")
     echo "== $target at $addr on $verifier"
     forge verify-contract "$addr" "$target" --chain 4663 --rpc-url "$RPC" --guess-constructor-args \
-      --verifier "$verifier" "${extra[@]}" --watch || echo "   (failed or already verified)"
+      --verifier "$verifier" ${extra[@]+"${extra[@]}"} --watch || echo "   (failed or already verified)"
   done
 }
 

@@ -1,0 +1,17 @@
+{
+  "chainId": 4663,
+  "commit": "d9e86c3",
+  "ethRouter": "0x415b050492a66Aebe3A3b11fbD9b0c9B115C3028",
+  "hook": "0x8AB5A53c5649f1C1D46E38AD120fD4f86fFC68cc",
+  "owner": "0x8F5A29c82e8285Db3B2af8D0caF5404b0f9ce834",
+  "poolOpened": true,
+  "router": "0x972Ff3a4e6e2ACe2f33aBFf2FC5521CCa919946e",
+  "startMarketCapImd": "324000000000000000000",
+  "token": "0x5417eAEcE3885552e777fCf133254E641449ae73",
+  "transactions": {
+    "hook": "0x99a8517e4d602fa58d25c286aab63515930df1b8196b25a020ae140c22421445",
+    "token": "0x2ac0f2fdae9825b58fb9f4179e2514c816f1395f43756e20e3e7aeafee9ec576",
+    "openPool": "0x416343b13ed823cd66201d00a86204bea85353d45d6aa9389c328939d7b46275"
+  },
+  "launchedAt": "2026-10-07T17:16:13Z"
+}

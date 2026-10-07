@@ -6,8 +6,8 @@ Send this to GoPlus (and adapt for Quick Intel) only if a scan of the deployed t
 
 Token: The Zero Person Billion Dollar Company (symbol: COMPANY)
 Chain: Robinhood Chain (chain ID 4663)
-Contract: `<token address>`
-Verified source: https://robinhoodchain.blockscout.com/address/`<token address>` (also on Sourcify)
+Contract: `0x5417eAEcE3885552e777fCf133254E641449ae73`
+Verified source: https://robinhoodchain.blockscout.com/address/0x5417eAEcE3885552e777fCf133254E641449ae73 (also on Sourcify)
 Repository: https://github.com/imdmaxi/IMDINDEX (file `contracts/src/CompanyToken.sol`)
 Website: https://www.zeropersoncompany.fun
 
@@ -23,7 +23,7 @@ Request: please review the flag(s) `<flag names>`. We believe they are false pos
 
 ## 2. Selling works, with a fixed 4% fee
 
-- COMPANY trades on Uniswap v4 against IMD (`0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127`) in one pool whose hook is `<hook address>`.
+- COMPANY trades on Uniswap v4 against IMD (`0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127`) in one pool whose hook is `0x8AB5A53c5649f1C1D46E38AD120fD4f86fFC68cc`.
 - The hook charges a fixed 4% of the IMD side of every buy and sell: 3% goes to holders and 1% to the protocol. Nobody can change it. Wallet-to-wallet transfers pay nothing.
 - Nothing in the token or the hook can block a sell or treat wallets differently.
 - All liquidity is owned by the hook, which has no function to remove it. It is locked permanently.
