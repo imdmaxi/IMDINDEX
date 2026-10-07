@@ -34,7 +34,7 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 4. **Conversion can't be profitably sandwiched or drained:** the per-round cap, the per-stock 1-minute spacing (many claims in one transaction convert once), the self-call isolation, the fixed 20 IMD round ceiling (`MAX_ROUND_IMD`) on top of the `maxConvert` depth read, and the per-stock pool limit (`stockRoundLimit`). Can a round be made to sell more than its ceiling or limits?
 5. **Minimum holding:** `eligibleSupply` always equals the sum of weights; crossing 100,000 either way never changes rewards already earned.
 6. **Expiry:** `recycle` never moves more than `expiredRewardsOf`, and only to `feeRecipient`.
-7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock that can't be bought falls back to IMD one capped round at a time, and only on a real failure, never because the caller sent too little gas.
+7. **Blocked stocks or holders** (stock tokens revert on blocked addresses): a refused payout stays claimable and never blocks the other assets, a claim, or a trade; a stock whose token or pool refuses the purchase falls back to IMD at once; a stock blocked by a price, feed or IMD/USDG-pool problem falls back only after waiting 30 days without a real purchase and failing for at least a day; never because the caller sent too little gas.
 8. **No privileged control over balances, fees or transfers:** the token's owner is renounced; the hook owner can only `openPool` once and change `feeRecipient`.
 
 ## 4. Resolved: IMD Swarm audit 78c00339 (on commit 9fe5e93)
@@ -93,7 +93,18 @@ Tests: `contracts/test/Company.t.sol` (unit, attack and fuzz against a real `Poo
 | 3 | Low: `feedLastGood` was only written when a round ran | Removed with the per-feed dead logic (see 4). `test_final3_3_unusableReadAfterQuietMonthHolds`. |
 | 4 | Low: the 30-day empty-pool fallback needed a daily keeper | One rule replaces the separate dead-feed and empty-pool clocks: `waitingSince[stock]` starts when a stock's reserve fills from empty, moves to now on every successful purchase and clears when the reserve empties; a stock waiting more than `DEAD_AFTER` (30 days) without a purchase has its rounds paid as IMD, whatever the reason. No keeper needed. `test_final3_emptyImdPoolFallsBackToImdAfter30Days`, `test_stuckClock_onlyCountsWaitingWithoutAPurchase`. |
 
-## 9. Known and accepted
+## 9. Resolved: IMD Swarm final check 4 dddb75ec (on commit 9a4c338)
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | Medium: the stuck fallback paid only the swap-clipped amount, so a dust position slowed it about 100× | Every fallback pays a full round, `min(pending, 4 IMD)`, never a swap-clipped amount; a purchase of less than a tenth of a round doesn't count as the stock working. `test_final4_1a_dustImdPositionDoesNotThrottleFallback`, `test_final4_1b_dustStockPoolDoesNotThrottleFallback`. |
+| 2 | Low: after a quiet month, the first transient skip paid a healthy stock as IMD | `failingSince[stock]` records the first failed or skipped attempt since the last real purchase; a stock falls back only when it has waited 30 days *and* been failing for at least a day. `test_final4_2a_quietMonthThenStaleFeedDoesNotPay`, `test_final4_2b_quietMonthThenImdEthPushDoesNotPay`. |
+| 3 | Low: in an exhausted IMD/USDG pool, a single-sided IMD position made all stocks fall back at once | The IMD/USDG pool is usable only when its price is within 10% of IMD's reference; `stockRoundLimit` prices USDG→IMD at the reference; an IMD/USDG-side fill failure is reported as `PriceOff` (skip), so only stock-side failures fall back at once. `test_final4_3_singleSidedImdPositionDoesNotForceFallback`. |
+| 4 | Info: Uniswap's 0.1% protocol fee is on for the route pools | Both minimums subtract the swap fee actually charged (`_swapFee`: LP fee and protocol fee for that direction). `test_final4_4_protocolFeeCountsInPriceChecks`. |
+| 5 | Info: README and NatSpec misstated the price checks and depth | Corrected. |
+| 6 | Info: no tests for the first-hop drift skip or stale ETH/USD and USDG/USD feeds | `test_final4_6a_imdEthDriftSkipsEverything`, `test_final4_6b_staleEthOrUsdgFeedHoldsEverything`. |
+
+## 10. Known and accepted
 
 - **Expiry estimate** (the same design was reviewed in IMD Swarm job cbe092d6, finding 1): "recent" rewards use the current weight. A gift received after a distribution can delay older rewards' expiry by up to 7 days. Combined with a claim, a round-trip gift from an accomplice can save an inactive wallet's own backlog (audit 363ab052, finding 2, gift variant). That needs real capital (roughly backlog / recent per-share growth in tokens), never touches other holders, and only reduces what the fee recipient collects. The flash-loan variants are closed: claim and recycle refuse to run mid-unlock, and tokens received from the PoolManager in the current transaction never count toward "recent" rewards.
 - Dividend sniping around large trades; fees from other routers reach holders at the next flush, so that trader can share in its own fee.

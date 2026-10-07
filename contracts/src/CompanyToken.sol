@@ -120,8 +120,8 @@ contract CompanyToken is IUnlockCallback {
     uint256 public constant MAX_CONVERT_BPS = 25;
     /// @notice Fixed ceiling on one round, whatever the pool reads: the depth above is read in the same transaction,
     ///         and just-in-time liquidity can inflate it (audit 78c00339, finding 1). Sandwiching a round stays
-    ///         unprofitable while the IMD/USDG pool's real depth exceeds about ROUND/0.9% (~2,200 IMD; ~19,750 at
-    ///         launch).
+    ///         unprofitable while the IMD/USDG pool's real depth exceeds about ROUND/1% (~2,200 IMD; the live pool held
+    ///         about 8,550 IMD of virtual depth in range on 2026-10-07).
     uint256 public constant MAX_ROUND_IMD = 20e18;
     /// @notice Minimum time between two conversions of the same stock. Every transaction in a block shares one
     ///         timestamp, so this allows one round per block at most: nobody can claim many times in one
@@ -219,6 +219,11 @@ contract CompanyToken is IUnlockCallback {
     /// @notice Since when each stock's reserve has been waiting without a successful purchase (0 while empty). Set
     ///         when the reserve fills from empty, moved to now by every successful purchase, cleared when it empties.
     uint256[ASSETS] public waitingSince;
+    /// @notice Since when each stock's purchases have been failing or skipped (stale feed, IMD/USDG pool unusable,
+    ///         price off its reference, only dust bought); 0 after a real purchase. A stock falls back to IMD only
+    ///         when it has both waited DEAD_AFTER and been failing for at least a day, so a quiet month alone never
+    ///         pays a healthy stock as IMD (audit dddb75ec, finding 2).
+    uint256[ASSETS] public failingSince;
 
     /// @notice Last activity of each holder (unix seconds), see the contract notice.
     mapping(address => uint256) public lastActive;
@@ -487,7 +492,10 @@ contract CompanyToken is IUnlockCallback {
         amount = bal - tracked;
         uint256 perStock = (amount * STOCK_SHARE_BPS) / BPS;
         for (uint256 a = 1; a < ASSETS; a++) {
-            if (perStock != 0 && pendingConvert[a] == 0) waitingSince[a] = block.timestamp;
+            if (perStock != 0 && pendingConvert[a] == 0) {
+                waitingSince[a] = block.timestamp;
+                failingSince[a] = 0;
+            }
             pendingConvert[a] += perStock;
         }
         _credit(0, amount - perStock * (ASSETS - 1));
@@ -705,33 +713,37 @@ contract CompanyToken is IUnlockCallback {
         // Inside someone else's unlock the swaps can't run (and the pool could be mid-manipulation): skip.
         if (IPoolManager(poolManager).isUnlocked()) return stockOut;
         uint256 roundCap = maxConvert();
-        // No usable IMD/USDG liquidity at its price (below 1% of a full round, so a dust position doesn't count):
-        // nothing can be bought; a stock waiting DEAD_AFTER is then paid as IMD at the full round size.
-        bool imdPoolEmpty = roundCap < MAX_ROUND_IMD / 100;
-        uint256 cap = (imdPoolEmpty ? MAX_ROUND_IMD : roundCap) / (ASSETS - 1);
+        // The IMD/USDG pool is usable only with real depth at its price (at least 1% of a full round, so a dust
+        // position doesn't count) and a price within IMD_TOLERANCE_BPS of IMD's reference value (IMD/ETH and
+        // Chainlink). Otherwise nothing is swapped and only stuck stocks fall back (audit dddb75ec, finding 3).
+        (bool refOk, uint256 refUsdPerImd) = _imdUsdReference();
+        bool imdPoolUsable =
+            refOk && roundCap >= MAX_ROUND_IMD / 100 && _within(_imdUsdSpot(), refUsdPerImd, IMD_TOLERANCE_BPS);
+        uint256 cap = roundCap / (ASSETS - 1);
         for (uint256 a = 1; a < ASSETS; a++) {
             if (block.timestamp < lastConvert[a] + CONVERT_INTERVAL) continue;
-            uint256 imdIn = pendingConvert[a];
-            if (imdIn > cap) imdIn = cap;
-            if (imdIn == 0) continue;
-            bool stuck = waitingSince[a] != 0 && block.timestamp > waitingSince[a] + DEAD_AFTER;
-            if (imdPoolEmpty) {
-                if (stuck) _fallBackToImd(a, imdIn);
+            uint256 pending = pendingConvert[a];
+            if (pending == 0) continue;
+            // A fallback swaps nothing, so it always moves a full round, never a swap-clipped amount (audit
+            // dddb75ec, finding 1).
+            uint256 fullRound = pending < MAX_ROUND_IMD / (ASSETS - 1) ? pending : MAX_ROUND_IMD / (ASSETS - 1);
+            if (!imdPoolUsable) {
+                _skipOrFallBack(a, fullRound);
                 continue;
             }
-            uint256 poolLimit = stockRoundLimit(a);
+            uint256 imdIn = pending < cap ? pending : cap;
+            uint256 poolLimit = _stockRoundLimit(a, refUsdPerImd);
             // (Almost) no liquidity at the stock pool's price: a swap would cross to whatever position sits next, at
             // its price (audit f1d5def3, finding 2), and a dust position must not hold the round back either (audit
             // 363ab052, finding 4). Hand this round to holders as IMD without swapping.
             if (poolLimit < cap / 100) {
-                _fallBackToImd(a, imdIn);
+                _fallBackToImd(a, fullRound);
                 continue;
             }
             if (imdIn > poolLimit) imdIn = poolLimit;
-            // A stale or unusable price feed (weekend, holiday, incident) holds the stock; after DEAD_AFTER of waiting
-            // without a purchase it is paid as IMD.
+            // A stale or unusable price feed (weekend, holiday, incident) holds the stock.
             if (!_feedsFresh(a)) {
-                if (stuck) _fallBackToImd(a, imdIn);
+                _skipOrFallBack(a, fullRound);
                 continue;
             }
             // Too little gas for a full CONVERT_GAS: skip the stock, never fall back, so a low-gas caller can't turn
@@ -740,25 +752,39 @@ contract CompanyToken is IUnlockCallback {
             try this.convertStock{gas: CONVERT_GAS}(a, imdIn) returns (uint256 out) {
                 stockOut[a] = out;
             } catch (bytes memory reason) {
-                // A price away from the references (Chainlink, IMD/ETH): someone may be moving a pool. Skip and try
-                // again next round; only a stock stuck for DEAD_AFTER is paid as IMD.
+                // A price away from its reference, or an IMD/USDG pool that can't fill (both reported as PriceOff):
+                // someone may be moving a pool. Skip and try again next round; only a stuck stock falls back.
                 if (reason.length >= 4 && bytes4(reason) == PriceOff.selector) {
-                    if (stuck) _fallBackToImd(a, imdIn);
+                    _skipOrFallBack(a, fullRound);
                     continue;
                 }
-                _fallBackToImd(a, imdIn);
+                // The stock side failed (its token refuses this contract, its pool can't fill): pay as IMD.
+                _fallBackToImd(a, fullRound);
             }
         }
     }
 
-    /// @dev This round's IMD for stock `asset` couldn't buy it: credit it to holders as IMD. Only this round's
-    ///      amount moves, so one failure (even one an outside party causes) changes at most one round's capped
-    ///      amount; a stock that keeps failing hands its reserve over round by round.
+    /// @dev Records a skipped round; a stock that has waited DEAD_AFTER without a real purchase and has been failing
+    ///      for at least a day is paid `amount` as IMD instead.
+    function _skipOrFallBack(uint256 asset, uint256 amount) internal {
+        if (failingSince[asset] == 0) failingSince[asset] = block.timestamp;
+        uint256 waiting = waitingSince[asset];
+        if (waiting != 0 && block.timestamp > waiting + DEAD_AFTER && block.timestamp >= failingSince[asset] + 1 days) {
+            _fallBackToImd(asset, amount);
+        }
+    }
+
+    /// @dev This round's IMD for stock `asset` couldn't buy it: credit it to holders as IMD. Only one round's amount
+    ///      moves, so one failure (even one an outside party causes) changes at most one round; a stock that keeps
+    ///      failing hands its reserve over round by round.
     function _fallBackToImd(uint256 asset, uint256 imdIn) internal {
         if (eligibleSupply < MIN_ELIGIBLE_SUPPLY) return;
         pendingConvert[asset] -= imdIn;
         lastConvert[asset] = block.timestamp;
-        if (pendingConvert[asset] == 0) waitingSince[asset] = 0;
+        if (pendingConvert[asset] == 0) {
+            waitingSince[asset] = 0;
+            failingSince[asset] = 0;
+        }
         _credit(0, imdIn);
         emit ConversionFailed(asset, imdIn);
     }
@@ -775,7 +801,17 @@ contract CompanyToken is IUnlockCallback {
         uint256 usdOut = abi.decode(IPoolManager(poolManager).unlock(abi.encode(asset, imdIn)), (uint256));
         stockOut = stock.balanceOf(address(this)) - before;
         if (stockOut == 0) revert Slippage();
-        waitingSince[asset] = pendingConvert[asset] == 0 ? 0 : block.timestamp;
+        if (pendingConvert[asset] == 0) {
+            waitingSince[asset] = 0;
+            failingSince[asset] = 0;
+        } else if (imdIn >= MAX_ROUND_IMD / (ASSETS - 1) / 10) {
+            // a real purchase (at least a tenth of a full round): the stock works
+            waitingSince[asset] = block.timestamp;
+            failingSince[asset] = 0;
+        } else if (failingSince[asset] == 0) {
+            // only dust could be bought: that's not a working stock (audit dddb75ec, finding 1)
+            failingSince[asset] = block.timestamp;
+        }
         emit Converted(asset, imdIn, usdOut, stockOut);
         distributeStock(asset);
     }
@@ -785,9 +821,11 @@ contract CompanyToken is IUnlockCallback {
         (uint256 asset, uint256 imdIn) = abi.decode(data, (uint256, uint256));
         IPoolManager pm = IPoolManager(poolManager);
 
-        uint256 usdOut = _swapExactIn(_key(quote, usd, imdUsdPool), quote, imdIn);
+        // The IMD/USDG side failing to fill is reported as PriceOff (skip), never as a stock failure (audit dddb75ec,
+        // finding 3): only the stock side may cause an immediate fallback.
+        uint256 usdOut = _swapExactIn(_key(quote, usd, imdUsdPool), quote, imdIn, true);
         if (usdOut < minUsdOut(imdIn)) revert PriceOff();
-        uint256 stockOut = _swapExactIn(_key(usd, assets[asset], stockPools[asset]), usd, usdOut);
+        uint256 stockOut = _swapExactIn(_key(usd, assets[asset], stockPools[asset]), usd, usdOut, false);
         if (stockOut < minStockOut(asset, usdOut)) revert PriceOff();
 
         pm.sync(Currency.wrap(quote));
@@ -798,7 +836,10 @@ contract CompanyToken is IUnlockCallback {
     }
 
     /// @dev Swaps all of `amountIn` of `tokenIn`; returns the output owed to this contract.
-    function _swapExactIn(PoolKey memory key, address tokenIn, uint256 amountIn) internal returns (uint256 out) {
+    function _swapExactIn(PoolKey memory key, address tokenIn, uint256 amountIn, bool firstHop)
+        internal
+        returns (uint256 out)
+    {
         if (amountIn == 0 || amountIn > uint256(type(int256).max)) revert BadAmount();
         bool zeroForOne = Currency.unwrap(key.currency0) == tokenIn;
         BalanceDelta delta = IPoolManager(poolManager)
@@ -813,7 +854,10 @@ contract CompanyToken is IUnlockCallback {
             );
         (int128 dIn, int128 dOut) = zeroForOne ? (delta.amount0(), delta.amount1()) : (delta.amount1(), delta.amount0());
         // A pool too thin to take the whole input would leave a debt the unlock can't settle: fail clearly instead.
-        if (uint256(int256(-dIn)) != amountIn || dOut <= 0) revert Slippage();
+        if (uint256(int256(-dIn)) != amountIn || dOut <= 0) {
+            if (firstHop) revert PriceOff();
+            revert Slippage();
+        }
         out = uint256(int256(dOut));
     }
 
@@ -833,11 +877,17 @@ contract CompanyToken is IUnlockCallback {
     }
 
     /// @notice Most IMD one round may spend on stock `asset`, from its own USDG/stock pool (audit 78c00339,
-    ///         finding 2): half the pool fee times its virtual USDG depth, priced in IMD at the IMD/USDG pool. A
-    ///         sandwich of that hop then costs more in the pool's fee than it can move the price. Zero for a pool
-    ///         with no liquidity (the round then falls back to IMD).
+    ///         finding 2): half the pool fee times its virtual USDG depth, priced in IMD at IMD's reference value
+    ///         (IMD/ETH and Chainlink; the IMD/USDG spot only if the reference is unavailable), so a made-up IMD/USDG
+    ///         price can't shrink it (audit dddb75ec, finding 3). Zero for a pool with no liquidity.
     function stockRoundLimit(uint256 asset) public view returns (uint256) {
         if (asset == 0 || asset >= ASSETS) revert BadAsset();
+        (bool refOk, uint256 usdPerImd) = _imdUsdReference();
+        return _stockRoundLimit(asset, refOk ? usdPerImd : _imdUsdSpot());
+    }
+
+    function _stockRoundLimit(uint256 asset, uint256 usdPerImd) internal view returns (uint256) {
+        if (usdPerImd == 0) return 0;
         Pool memory p = stockPools[asset];
         PoolKey memory sk = _key(usd, assets[asset], p);
         (uint160 sp,,,) = IPoolManager(poolManager).getSlot0(sk.toId());
@@ -847,13 +897,44 @@ contract CompanyToken is IUnlockCallback {
             ? FullMath.mulDiv(liquidity, Q96, sp)  // USDG is currency0
             : FullMath.mulDiv(liquidity, sp, Q96); // USDG is currency1
         uint256 usdLimit = FullMath.mulDiv(usdDepth, p.fee, 2_000_000); // fee is in millionths
+        return FullMath.mulDiv(usdLimit, 1e18, usdPerImd);
+    }
+
+    /// @dev USDG (its own decimals) per 1e18 IMD at the IMD/USDG pool's current price; 0 if not initialized.
+    function _imdUsdSpot() internal view returns (uint256) {
         PoolKey memory ik = _key(quote, usd, imdUsdPool);
         (uint160 ip,,,) = IPoolManager(poolManager).getSlot0(ik.toId());
         if (ip == 0) return 0;
         // price = currency1 per currency0 = (ip / 2^96)^2
         return Currency.unwrap(ik.currency0) == quote
-            ? FullMath.mulDiv(FullMath.mulDiv(usdLimit, Q96, ip), Q96, ip)  // USDG per IMD: IMD = USDG / price
-            : FullMath.mulDiv(FullMath.mulDiv(usdLimit, ip, Q96), ip, Q96); // IMD per USDG: IMD = USDG * price
+            ? FullMath.mulDiv(FullMath.mulDiv(1e18, ip, Q96), ip, Q96)  // USDG per IMD
+            : FullMath.mulDiv(FullMath.mulDiv(1e18, Q96, ip), Q96, ip); // IMD per USDG, inverted
+    }
+
+    /// @dev USDG (its own decimals) per 1e18 IMD at IMD's reference value: the IMD/ETH pool with Chainlink ETH/USD and
+    ///      USDG/USD. Not ok when a feed is stale or the IMD/ETH pool is not initialized.
+    function _imdUsdReference() internal view returns (bool ok, uint256 usdPerImd) {
+        (bool okE, uint256 ethUsd) = _readFeed(ethUsdFeed);
+        (bool okU, uint256 usdgUsd) = _readFeed(usdFeed);
+        if (!okE || !okU) return (false, 0);
+        (uint160 sp,,,) = IPoolManager(poolManager).getSlot0(_key(address(0), quote, imdEthPool).toId());
+        if (sp == 0) return (false, 0);
+        // ETH (address zero) is currency0: price = IMD per ETH = (sp / 2^96)^2, so ETH for 1e18 IMD = 1e18 / price
+        uint256 ethAmount = FullMath.mulDiv(FullMath.mulDiv(1e18, Q96, sp), Q96, sp);
+        usdPerImd = FullMath.mulDiv(ethAmount, ethUsd * _usdUnit, 1e18 * usdgUsd);
+        return (usdPerImd != 0, usdPerImd);
+    }
+
+    function _within(uint256 value, uint256 ref, uint256 toleranceBps) internal pure returns (bool) {
+        return value * BPS >= ref * (BPS - toleranceBps) && value * BPS <= ref * (BPS + toleranceBps);
+    }
+
+    /// @dev Fee in millionths a swap in `key` pays in that direction: the LP fee plus Uniswap's protocol fee where
+    ///      it is switched on (0.1% on IMD/USDG and GME/USDG on Robinhood Chain; audit dddb75ec, finding 4).
+    function _swapFee(PoolKey memory key, bool zeroForOne) internal view returns (uint256) {
+        (,, uint24 protocolFee, uint24 lpFee) = IPoolManager(poolManager).getSlot0(key.toId());
+        uint256 pf = zeroForOne ? protocolFee & 0xfff : protocolFee >> 12;
+        return pf + lpFee - (pf * lpFee) / 1_000_000;
     }
 
     /// @notice Least stock a purchase with `usdIn` USDG (6 decimals) must receive: its value at Chainlink's USDG/USD
@@ -867,7 +948,8 @@ contract CompanyToken is IUnlockCallback {
         uint256 fair = FullMath.mulDiv(usdIn * usdgUsd, _unit[asset], stockUsd * _usdUnit);
         // The pool's own fee is known and can't be pushed, so the tolerance applies after it (audit 363ab052,
         // finding 6): a 1%-fee pool keeps the same 3% margin as a 0.01% one.
-        fair = (fair * (1_000_000 - stockPools[asset].fee)) / 1_000_000;
+        PoolKey memory sk = _key(usd, assets[asset], stockPools[asset]);
+        fair = (fair * (1_000_000 - _swapFee(sk, Currency.unwrap(sk.currency0) == usd))) / 1_000_000;
         return (fair * (BPS - ORACLE_TOLERANCE_BPS)) / BPS;
     }
 
@@ -882,15 +964,11 @@ contract CompanyToken is IUnlockCallback {
     ///         IMD/ETH pool and Chainlink ETH/USD and USDG/USD, less the IMD/USDG pool's fee and IMD_TOLERANCE_BPS.
     ///         Reverts PriceOff when a feed or the IMD/ETH pool is unusable.
     function minUsdOut(uint256 imdIn) public view returns (uint256) {
-        (bool okE, uint256 ethUsd) = _readFeed(ethUsdFeed);
-        (bool okU, uint256 usdgUsd) = _readFeed(usdFeed);
-        if (!okE || !okU) revert PriceOff();
-        (uint160 sp,,,) = IPoolManager(poolManager).getSlot0(_key(address(0), quote, imdEthPool).toId());
-        if (sp == 0) revert PriceOff();
-        // ETH (address zero) is currency0: price = IMD per ETH = (sp / 2^96)^2, so ETH for imdIn = imdIn / price
-        uint256 ethAmount = FullMath.mulDiv(FullMath.mulDiv(imdIn, Q96, sp), Q96, sp);
-        uint256 fair = FullMath.mulDiv(ethAmount, ethUsd * _usdUnit, 1e18 * usdgUsd);
-        fair = (fair * (1_000_000 - imdUsdPool.fee)) / 1_000_000;
+        (bool ok, uint256 usdPerImd) = _imdUsdReference();
+        if (!ok) revert PriceOff();
+        uint256 fair = FullMath.mulDiv(imdIn, usdPerImd, 1e18);
+        PoolKey memory ik = _key(quote, usd, imdUsdPool);
+        fair = (fair * (1_000_000 - _swapFee(ik, Currency.unwrap(ik.currency0) == quote))) / 1_000_000;
         return (fair * (BPS - IMD_TOLERANCE_BPS)) / BPS;
     }
 

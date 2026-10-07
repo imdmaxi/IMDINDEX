@@ -66,7 +66,7 @@ contract CompanyForkTest is Test {
         vm.prank(bob);
         ethRouter.buyWithEth{value: 2 ether}(address(token), 0, block.timestamp);
         // How far the ETH-route buys moved IMD/ETH away from IMD/USDG (no arbitrage runs in a fork).
-        uint256 refUsd = token.minUsdOut(1e18); // USDG for 1 IMD, after fee and 5% tolerance
+        uint256 refUsd = token.minUsdOut(1e18); // USDG for 1 IMD, after the swap fee and the 10% tolerance
         console.log("first-hop minimum USDG per IMD (6 dp):", refUsd);
         assertGt(token.owed(0), 0, "IMD credited");
         console.log("IMD credited to holders  :", token.owed(0));

@@ -1182,8 +1182,12 @@ contract CompanyTest is Test {
         assertGt(token.maxConvert(), 0);
         vm.warp(block.timestamp + 31 days);
         _refreshFeedsExcept(99);
+        token.convert(); // a quiet month: this first failed attempt only starts the failing clock
+        assertEq(token.pendingConvert(1), 6e18, "not paid on the first attempt after a quiet month");
+        vm.warp(block.timestamp + 1 days);
+        _refreshFeedsExcept(99);
         token.convert();
-        assertEq(token.pendingConvert(1), 2e18, "rounds paid as IMD after 30 days");
+        assertEq(token.pendingConvert(1), 2e18, "paid as IMD (full round) once failing for a day");
     }
 
     /// @dev Finding 4 (low): a feed that answers 0 (or reverts) for a while holds the stock; it isn't dead at once.
@@ -1303,6 +1307,169 @@ contract CompanyTest is Test {
         token.convert();
         assertEq(token.pendingConvert(1), 6e18, "held, not paid as IMD");
         assertEq(token.owed(0), owedImd);
+    }
+
+    // ------------------------------------------------------------ IMD Swarm final check 4 dddb75ec
+
+    function _imdEthKey() internal view returns (PoolKey memory) {
+        return PoolKey(Currency.wrap(address(0)), Currency.wrap(address(imd)), 10_000, 100, IHooks(address(0)));
+    }
+
+    /// @dev Pushes IMD's price in the IMD/ETH pool up by buying IMD with ETH (moves the reference ~12%).
+    function _pushImdEth() internal {
+        extRouter.swap{value: 600 ether}(
+            _imdEthKey(), SwapParams(true, -600e18, TickMath.MIN_SQRT_PRICE + 1), settings, ""
+        );
+    }
+
+    /// @dev Finding 1 (medium), IMD/USDG side: a dust position at a made-up price no longer throttles the stuck
+    ///      fallback; it pays a full 4 IMD round.
+    function test_final4_1a_dustImdPositionDoesNotThrottleFallback() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        bool imdIs0 = address(imd) < address(usdg);
+        int24 target = imdIs0 ? int24(-207_000) : int24(207_000);
+        extRouter.swap(ik, SwapParams(imdIs0, -1, TickMath.getSqrtPriceAtTick(target)), settings, "");
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(target - 90, target + 90, 2.6e15, 0), "");
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert(); // skipped: the pool's price is far from IMD's reference
+        assertEq(token.pendingConvert(1), 6e18);
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(99);
+        token.convert();
+        assertEq(token.pendingConvert(1), 2e18, "full 4 IMD round paid as IMD, not 0.04");
+    }
+
+    /// @dev Finding 1, stock side: a dust stock-pool position with a dead feed still pays full rounds.
+    function test_final4_1b_dustStockPoolDoesNotThrottleFallback() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, -1_000_000e18, 0), "");
+        lp.modifyLiquidity(nk, ModifyLiquidityParams(-FULL_60, FULL_60, 30e18, 0), "");
+        feeds[0].set(1e8, block.timestamp - 5 days); // NVDA feed stale
+        vm.warp(block.timestamp + 1 minutes);
+        _refreshFeedsExcept(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18, "held while stale");
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(0);
+        token.convert();
+        assertEq(token.pendingConvert(1), 2e18, "full 4 IMD round paid as IMD, not the 0.045 the pool allows");
+    }
+
+    /// @dev Finding 2 (low): after a quiet month, a weekend-stale feed only arms the clock; nothing is paid as IMD.
+    function test_final4_2a_quietMonthThenStaleFeedDoesNotPay() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 31 days); // nobody claims or converts
+        _refreshFeedsExcept(0);
+        feeds[0].set(1e8, block.timestamp - 4 days - 1);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert();
+        assertEq(token.pendingConvert(1), 6e18, "healthy NVDA waits for its feed");
+        assertEq(token.owed(0) - owedImd, 0, "nothing paid as IMD for NVDA");
+        // the feed updates on Monday: NVDA is bought as usual
+        vm.warp(block.timestamp + 1 hours);
+        _refreshFeedsExcept(99);
+        uint256[6] memory out = token.convert();
+        assertGt(out[1], 0);
+    }
+
+    /// @dev Finding 2: after a quiet month, pushing IMD/ETH far from IMD/USDG only skips; nothing is paid as IMD.
+    function test_final4_2b_quietMonthThenImdEthPushDoesNotPay() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 31 days);
+        _refreshFeedsExcept(99);
+        _pushImdEth();
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        for (uint256 s = 1; s <= 5; s++) {
+            assertEq(token.pendingConvert(s), 6e18);
+        }
+        assertEq(token.owed(0), owedImd);
+    }
+
+    /// @dev Finding 3 (low): in an exhausted IMD/USDG pool, a single-sided IMD position (made-up high price, or the
+    ///      true price) makes nothing fall back at once.
+    function test_final4_3_singleSidedImdPositionDoesNotForceFallback() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        PoolKey memory ik = _key(address(imd), address(usdg), 9000, 90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(-FULL_90, FULL_90, -10_000e18, 0), "");
+        bool imdIs0 = address(imd) < address(usdg);
+        // (1) made-up high IMD price, IMD-only position
+        int24 high = imdIs0 ? int24(108_000) : int24(-108_000);
+        extRouter.swap(ik, SwapParams(!imdIs0, -1, TickMath.getSqrtPriceAtTick(high)), settings, "");
+        int24 lo = imdIs0 ? high : high - 90;
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(lo, lo + 90, 2e24, 0), "");
+        vm.warp(block.timestamp + 1 minutes);
+        uint256 owedImd = token.owed(0);
+        token.convert();
+        assertEq(token.owed(0), owedImd, "no immediate fallback at a made-up price");
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(lo, lo + 90, -2e24, 0), "");
+        // (2) the true price, IMD-only position: the IMD/USDG side can't fill, which is a skip, not a stock failure
+        extRouter.swap(ik, SwapParams(imdIs0, -1, TickMath.getSqrtPriceAtTick(0)), settings, "");
+        lo = imdIs0 ? int24(0) : int24(-90);
+        lp.modifyLiquidity(ik, ModifyLiquidityParams(lo, lo + 90, 8_000e18, 0), "");
+        vm.warp(block.timestamp + 1 minutes);
+        token.convert();
+        for (uint256 s = 1; s <= 5; s++) {
+            assertEq(token.pendingConvert(s), 6e18, "reserves unchanged");
+        }
+        assertEq(token.owed(0), owedImd);
+    }
+
+    /// @dev Finding 4 (info): the price checks subtract Uniswap's protocol fee as well as the LP fee.
+    function test_final4_4_protocolFeeCountsInPriceChecks() public {
+        uint256 before = token.minStockOut(1, 1_000e18);
+        pm.setProtocolFeeController(address(this));
+        PoolKey memory nk = _key(address(usdg), address(stocks[0]), 3000, 60);
+        pm.setProtocolFee(nk, uint24((1000 << 12) | 1000)); // 0.1% each way, as on Robinhood Chain
+        uint256 afterFee = token.minStockOut(1, 1_000e18);
+        // swap fee 0.3% -> 0.3997%
+        assertApproxEqRel(afterFee * 1e18 / before, uint256(1_000_000 - 3997) * 1e18 / (1_000_000 - 3000), 1e12);
+    }
+
+    /// @dev Finding 6 (info): IMD/ETH drifting more than 10% from IMD/USDG skips every stock (nothing is paid as IMD
+    ///      before 30 days), and a stale ETH/USD or USDG/USD feed holds all five stocks.
+    function test_final4_6a_imdEthDriftSkipsEverything() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        _pushImdEth();
+        uint256 owedImd = token.owed(0);
+        uint256[6] memory out = token.convert();
+        for (uint256 s = 1; s <= 5; s++) {
+            assertEq(out[s], 0);
+            assertEq(token.pendingConvert(s), 6e18);
+        }
+        assertEq(token.owed(0), owedImd);
+    }
+
+    function test_final4_6b_staleEthOrUsdgFeedHoldsEverything() public {
+        _buy(alice, 1_000e18);
+        _buy(bob, 1_000e18);
+        vm.warp(block.timestamp + 1 minutes);
+        ethFeed.set(1e8, block.timestamp - 4 days - 1);
+        uint256[6] memory out = token.convert();
+        for (uint256 s = 1; s <= 5; s++) {
+            assertEq(out[s], 0);
+            assertEq(token.pendingConvert(s), 6e18);
+        }
+        ethFeed.set(1e8, block.timestamp);
+        usdFeed.set(1e8, block.timestamp - 4 days - 1);
+        vm.warp(block.timestamp + 1 minutes);
+        out = token.convert();
+        for (uint256 s = 1; s <= 5; s++) {
+            assertEq(out[s], 0);
+            assertEq(token.pendingConvert(s), 6e18);
+        }
     }
 
     // ------------------------------------------------------------ what honeypot scanners simulate
