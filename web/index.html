@@ -153,6 +153,12 @@ p { margin: 0; }
 .hero-copy { display: grid; gap: 22px; }
 .hero-copy p { font-size: 17px; color: rgba(255, 255, 255, 0.88); max-width: 40ch; }
 .cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.audit-badge { display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 8px 12px; border-radius: 8px; font-size: 13px; color: rgba(255, 255, 255, 0.9); text-decoration: none; background: rgba(255, 255, 255, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.audit-badge:hover { background: rgba(255, 255, 255, 0.16); }
+.audit-badge b { color: #fff; font-weight: 600; }
+.audit-badge svg { width: 16px; height: 16px; flex: none; }
+.audit-latest { display: grid; gap: 12px; }
+.audit-latest .btn { width: fit-content; }
 @media (max-width: 960px) { .hero .wrap { grid-template-columns: minmax(0, 1fr); } .hero { min-height: 0; } }
 
 /* app mockup in the hero */
@@ -399,6 +405,7 @@ footer p { max-width: 95ch; }
             <a class="btn on-sky" href="#swap">Buy $COMPANY <span aria-hidden="true">→</span></a>
             <a class="btn glass" href="#docs">How it works</a>
           </div>
+          <a class="audit-badge" href="https://explorer.imd.fun/jobs/4d037a63-766b-42d8-810a-2ddc7bad2299" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span><b>Audited</b> · 7 IMD Swarm rounds before launch · Latest report ↗</span></a>
         </div>
         <div class="mock rise d2" aria-label="Dashboard preview">
           <div class="mock-top">
@@ -698,6 +705,37 @@ footer p { max-width: 95ch; }
       </section>
 
       <section class="section">
+        <div class="side-head"><h2>Audits</h2><p>7 IMD Swarm audit rounds before launch. Every finding was fixed or documented, each with a test that reproduces it.</p></div>
+        <div class="grid g2">
+          <div class="card audit-latest">
+            <span class="tiny">Latest round</span>
+            <h3>Final check 5</h3>
+            <p style="color:var(--muted)">1 medium, 3 low and 3 informational findings, all fixed in the code that launched (<a href="https://github.com/imdmaxi/IMDINDEX/commit/d9e86c3" target="_blank" rel="noopener">d9e86c3</a>). Those last fixes came after this round and weren't audited again.</p>
+            <a class="btn" href="https://explorer.imd.fun/jobs/4d037a63-766b-42d8-810a-2ddc7bad2299" target="_blank" rel="noopener">Read the latest report ↗</a>
+          </div>
+          <div class="card prose">
+            <span class="tiny">How findings were handled</span>
+            <p>Each round's findings, and how each one was resolved, are written up in the repository, next to the code that was audited.</p>
+            <p><a href="https://github.com/imdmaxi/IMDINDEX/blob/main/AUDIT.md" target="_blank" rel="noopener"><strong>AUDIT.md on GitHub ↗</strong></a></p>
+          </div>
+        </div>
+        <div class="card table-scroll">
+          <table class="plain">
+            <thead><tr><th>#</th><th>Round</th><th>Report</th><th>Commit</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td><b>Audit</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/78c00339-8764-4684-920c-0958d23472c0" target="_blank" rel="noopener">78c00339 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/9fe5e93" target="_blank" rel="noopener">9fe5e93</a></td></tr>
+              <tr><td>2</td><td><b>Re-check</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/f1d5def3-c15d-4e7f-99cb-e0b0ebfdd584" target="_blank" rel="noopener">f1d5def3 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/ece5d4c" target="_blank" rel="noopener">ece5d4c</a></td></tr>
+              <tr><td>3</td><td><b>Final check</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/363ab052-8299-402c-8111-849a10d68da1" target="_blank" rel="noopener">363ab052 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/d624407" target="_blank" rel="noopener">d624407</a></td></tr>
+              <tr><td>4</td><td><b>Final check 2</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/882666b4-08cf-476b-ac4f-7c2e44399300" target="_blank" rel="noopener">882666b4 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/331230c" target="_blank" rel="noopener">331230c</a></td></tr>
+              <tr><td>5</td><td><b>Final check 3</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/986abba2-68de-47d2-be7e-4c68f5525e3b" target="_blank" rel="noopener">986abba2 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/3b09bc7" target="_blank" rel="noopener">3b09bc7</a></td></tr>
+              <tr><td>6</td><td><b>Final check 4</b></td><td class="addr"><a href="https://explorer.imd.fun/jobs/dddb75ec-5081-49b8-9204-f4de1725ca03" target="_blank" rel="noopener">dddb75ec ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/9a4c338" target="_blank" rel="noopener">9a4c338</a></td></tr>
+              <tr><td>7</td><td><b>Final check 5</b> <span class='pill live' style='margin-left:6px'>Latest</span></td><td class="addr"><a href="https://explorer.imd.fun/jobs/4d037a63-766b-42d8-810a-2ddc7bad2299" target="_blank" rel="noopener">4d037a63 ↗</a></td><td class="addr"><a href="https://github.com/imdmaxi/IMDINDEX/commit/08ff797" target="_blank" rel="noopener">08ff797</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
         <h2>Common questions</h2>
         <div class="faq">
           <details><summary>Where do rewards arrive?</summary><p>In your wallet, when you claim. One claim pays IMD and every stock you earned.</p></details>
@@ -708,7 +746,7 @@ footer p { max-width: 95ch; }
           <details><summary>How are stock prices protected?</summary><p>Each purchase must get at least 97% of the stock that Chainlink's price feed says the money is worth. The IMD it spends is checked the same way, against IMD's price via its ETH pool and Chainlink's ETH price. If someone pushes a pool's price, or a feed is out of date, that stock simply waits for a later round, and if it still can't be bought after 30 days of tries its share is paid as IMD.</p></details>
           <details><summary>What if a stock can't be bought?</summary><p>If Robinhood blocks a stock for this contract, that stock's share is paid to holders as IMD instead, in the same claim. Any other problem (a paused price feed, a thin pool) just makes that stock wait; if it still can't be bought after 30 days of tries, its share is paid as IMD. You never lose the value.</p></details>
           <details><summary>Are these real shares?</summary><p>They are Robinhood Stock Tokens: tokens tracking the stock, not brokerage shares, with no voting rights. They aren't offered to US persons, and Robinhood can block addresses.</p></details>
-          <details><summary>Has it been audited?</summary><p>Not yet. Treat it as unaudited software until an audit is published.</p></details>
+          <details><summary>Has it been audited?</summary><p>Yes. IMD Swarm audited it in 7 rounds before launch, and every finding was fixed or documented. The fixes from the last round went live without another audit. The reports are linked in the Audits section above; the latest is <a href="https://explorer.imd.fun/jobs/4d037a63-766b-42d8-810a-2ddc7bad2299" target="_blank" rel="noopener">final check 5 ↗</a>.</p></details>
         </div>
       </section>
     </div>
@@ -723,7 +761,7 @@ footer p { max-width: 95ch; }
 <footer>
   <div class="wrap">
     <p>Informational only; not financial, legal, tax, or investment advice. Rewards are Robinhood Stock Tokens, not brokerage shares, and do not include voting rights. Liquidity may be limited and prices can move materially. Swaps include the 4% fee shown in the quote.</p>
-    <p><a href="https://github.com/imdmaxi/IMDINDEX">Source on GitHub</a></p>
+    <p><a href="https://github.com/imdmaxi/IMDINDEX">Source on GitHub</a> · <a href="https://explorer.imd.fun/jobs/4d037a63-766b-42d8-810a-2ddc7bad2299" target="_blank" rel="noopener">Latest audit report</a> · <a href="https://github.com/imdmaxi/IMDINDEX/blob/main/AUDIT.md" target="_blank" rel="noopener">Audit history</a></p>
   </div>
 </footer>
 
