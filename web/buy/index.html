@@ -277,12 +277,12 @@ async function syncButton(bal, amount) {
   const go = $("go");
   needsApproval = false;
   if (!S.provider) { go.textContent = "Buy on the website ↗"; go.disabled = false; return; }
-  if (!S.signer) { go.textContent = "Connect wallet"; go.disabled = false; return; }
   if (!amount) { go.textContent = "Enter an amount"; go.disabled = true; return; }
+  if (!S.signer) { go.textContent = "Connect & buy"; go.disabled = false; return; }
   if (bal != null && amount > bal) { go.textContent = "Not enough " + S.asset; go.disabled = true; return; }
   if (S.asset === "IMD") {
     const allowance = await new ethers.Contract(C.imd, ABI.erc20, reader).allowance(S.account, C.router).catch(() => 0n);
-    if (allowance < amount) { needsApproval = true; go.textContent = "Approve IMD (step 1 of 2)"; go.disabled = false; return; }
+    if (allowance < amount) { needsApproval = true; go.textContent = "Approve & buy"; go.disabled = false; return; }
   }
   go.textContent = "Buy $COMPANY"; go.disabled = false;
 }
@@ -306,48 +306,84 @@ const announced = [];
 window.addEventListener("eip6963:announceProvider", (e) => { if (e.detail && e.detail.provider) announced.push(e.detail.provider); });
 window.dispatchEvent(new Event("eip6963:requestProvider"));
 function pickProvider() { return announced[0] || window.ethereum || null; }
-async function ensureChain(p) {
-  const hex = "0x" + C.chainId.toString(16);
-  try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] }); }
+// A request can be left waiting in the wallet: its window opened behind the browser, or X reloaded the player
+// (scrolling, pressing play again). The wallet then refuses new ones (-32002), so wait for the user to finish it.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isPending = (e) => Boolean(e && (e.code === -32002 || /already pending|request.*pending/i.test(e.message || "")));
+const WAITING = "Your wallet has a request waiting. Click the MetaMask (or your wallet's) icon in the toolbar to see it.";
+async function waitFor(check, label, ms = 180000) {
+  setStatus(label);
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    await sleep(1500);
+    try { const v = await check(); if (v) { setStatus(""); return v; } } catch (e) {}
+  }
+  throw new Error("Still waiting for your wallet. Open it, finish or reject the request, then try again.");
+}
+const chainOf = async (p) => parseInt(await p.request({ method: "eth_chainId" }), 16);
+async function requestAccounts(p) {
+  try { return await p.request({ method: "eth_requestAccounts" }); }
   catch (e) {
-    if (e && (e.code === 4902 || /unrecognized|not added|unknown chain/i.test(e.message || ""))) {
-      await p.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: C.chainName, rpcUrls: [C.rpc], nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, blockExplorerUrls: [C.explorer] }] });
-    } else throw e;
+    if (!isPending(e)) throw e;
+    return waitFor(async () => { const a = await p.request({ method: "eth_accounts" }); return a && a.length ? a : null; }, WAITING);
   }
 }
-async function connect() {
-  const p = S.provider;
-  await p.request({ method: "eth_requestAccounts" });
-  await ensureChain(p);
-  S.signer = await new ethers.BrowserProvider(p).getSigner();
+async function ensureChain(p) {
+  if ((await chainOf(p)) === C.chainId) return; // already there: no prompt
+  const hex = "0x" + C.chainId.toString(16), onChain = async () => (await chainOf(p)) === C.chainId;
+  setStatus("Switch your wallet to Robinhood Chain…");
+  try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] }); }
+  catch (e) {
+    if (isPending(e)) return void (await waitFor(onChain, WAITING));
+    if (!(e && (e.code === 4902 || /unrecognized|not added|unknown chain/i.test(e.message || "")))) throw e;
+    try { await p.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: C.chainName, rpcUrls: [C.rpc], nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, blockExplorerUrls: [C.explorer] }] }); }
+    catch (e2) { if (isPending(e2)) return void (await waitFor(onChain, WAITING)); throw e2; }
+  }
+  if (!(await onChain())) await waitFor(onChain, "Switch your wallet to Robinhood Chain…", 60000);
+}
+async function useAccount(addr) {
+  S.signer = await new ethers.BrowserProvider(S.provider).getSigner(addr);
   S.account = await S.signer.getAddress();
   $("site").href = C.site + "/#portfolio?address=" + S.account;
+}
+async function connect() {
+  setStatus("Connect your wallet…");
+  const accounts = await requestAccounts(S.provider);
+  await ensureChain(S.provider);
+  await useAccount(accounts[0]);
+}
+// Sends a wallet transaction; a request already waiting in the wallet gets a clear message instead of an error.
+async function send(fn) {
+  try { return await fn(); }
+  catch (e) { if (isPending(e)) throw new Error(WAITING); throw e; }
 }
 $("go").addEventListener("click", async () => {
   if (!S.provider) { window.open(dappUrl, "_blank", "noopener"); return; }
   if (S.busy) return;
+  const amount = parseAmount(); if (!amount) return;
   S.busy = true; $("go").disabled = true;
   try {
-    if (!S.signer) { setStatus("Connect in your wallet…"); await connect(); setStatus(""); return; }
-    const amount = parseAmount(); if (!amount) return;
-    if (S.asset === "IMD" && needsApproval) {
-      setStatus("Approve IMD in your wallet…");
-      const tx = await new ethers.Contract(C.imd, ABI.erc20, S.signer).approve(C.router, amount);
-      setStatus("Approving…"); await tx.wait();
-      setStatus("Approved. Now press Buy $COMPANY.", "ok");
-    } else {
-      const out = await quote(amount, S.asset); // fresh quote for the minimum
-      const minOut = (out * (10000n - SLIPPAGE_BPS)) / 10000n, deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
-      setStatus("Confirm the buy in your wallet…");
-      const tx = S.asset === "ETH"
-        ? await new ethers.Contract(C.ethRouter, ABI.ethRouter, S.signer).buyWithEth(C.token, minOut, deadline, { value: amount })
-        : await new ethers.Contract(C.router, ABI.router, S.signer).buy(C.token, amount, minOut, deadline);
-      setStatus("Buying…");
-      const rc = await tx.wait();
-      if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
-      setStatus(`Bought about ${fmt(units(out), 0)} $COMPANY.`, "ok", { href: C.explorer + "/tx/" + tx.hash, text: "View ↗" });
-      loadPrices();
+    if (!S.signer) await connect(); else await ensureChain(S.provider);
+    const asset = S.asset, bal = await balanceOf(asset);
+    if (bal != null && amount > bal) throw new Error(`Not enough ${asset}: this wallet has ${fmt(units(bal), 4)}.`);
+    if (asset === "IMD") {
+      const allowance = await new ethers.Contract(C.imd, ABI.erc20, reader).allowance(S.account, C.router);
+      if (allowance < amount) {
+        setStatus("Step 1 of 2: approve IMD in your wallet…");
+        const tx = await send(() => new ethers.Contract(C.imd, ABI.erc20, S.signer).approve(C.router, amount));
+        setStatus("Approving…"); await tx.wait();
+      }
     }
+    const out = await quote(amount, asset); // fresh quote for the minimum
+    const minOut = (out * (10000n - SLIPPAGE_BPS)) / 10000n, deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+    setStatus(asset === "IMD" ? "Step 2 of 2: confirm the buy in your wallet…" : "Confirm the buy in your wallet…");
+    const tx = await send(() => asset === "ETH"
+      ? new ethers.Contract(C.ethRouter, ABI.ethRouter, S.signer).buyWithEth(C.token, minOut, deadline, { value: amount })
+      : new ethers.Contract(C.router, ABI.router, S.signer).buy(C.token, amount, minOut, deadline));
+    setStatus("Buying…");
+    const rc = await tx.wait();
+    if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+    setStatus(`Bought about ${fmt(units(out), 0)} $COMPANY.`, "ok", { href: C.explorer + "/tx/" + tx.hash, text: "View ↗" });
+    loadPrices();
   } catch (e) { setStatus(errMsg(e), "err"); }
   finally { S.busy = false; refresh(); }
 });
@@ -358,14 +394,15 @@ setTimeout(() => {
   $("opens").hidden = !!S.provider;
   syncButton(null, parseAmount());
   // A wallet that already approved this site reconnects without a prompt.
-  if (S.provider) S.provider.request({ method: "eth_accounts" }).then(async (a) => {
-    if (!a || !a.length) return;
-    const chain = parseInt(await S.provider.request({ method: "eth_chainId" }), 16);
-    if (chain !== C.chainId) return;
-    S.signer = await new ethers.BrowserProvider(S.provider).getSigner(a[0]); S.account = await S.signer.getAddress();
-    $("site").href = C.site + "/#portfolio?address=" + S.account;
-    refresh();
+  if (!S.provider) return;
+  S.provider.request({ method: "eth_accounts" }).then(async (a) => {
+    if (!a || !a.length || (await chainOf(S.provider)) !== C.chainId) return;
+    await useAccount(a[0]); refresh();
   }).catch(() => {});
+  if (S.provider.on) {
+    S.provider.on("accountsChanged", (a) => { S.signer = null; S.account = null; if (a && a.length) useAccount(a[0]).then(refresh, refresh); else refresh(); });
+    S.provider.on("chainChanged", () => { if (S.account) useAccount(S.account).then(refresh, refresh); });
+  }
 }, 300);
 
 setAsset("ETH");
