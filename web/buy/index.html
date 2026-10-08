@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src https: wss:; base-uri 'none'; form-action 'none'; object-src 'none'" />
+<title>Buy $COMPANY</title>
+<meta name="description" content="Buy $COMPANY without leaving X. Holders earn 3% of every trade in IMD and stocks: NVDA, GOOGL, AAPL, GME and MSTR." />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<!-- X player card: the post shows card.png with a play button; pressing play loads this page inside the post. -->
+<meta name="twitter:card" content="player" />
+<meta name="twitter:title" content="Buy $COMPANY directly from this 𝕏 post" />
+<meta name="twitter:description" content="Press play. Holders earn 3% of every trade in IMD and stocks." />
+<meta name="twitter:image" content="https://www.zeropersoncompany.fun/buy/card.png" />
+<meta name="twitter:image:alt" content="Buy $COMPANY: hold the company, earn stocks" />
+<meta name="twitter:player" content="https://www.zeropersoncompany.fun/buy/" />
+<meta name="twitter:player:width" content="480" />
+<meta name="twitter:player:height" content="560" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="The Zero Person Billion Dollar Company" />
+<meta property="og:title" content="Buy $COMPANY directly from this 𝕏 post" />
+<meta property="og:description" content="Press play. Holders earn 3% of every trade in IMD and stocks." />
+<meta property="og:url" content="https://www.zeropersoncompany.fun/buy/" />
+<meta property="og:image" content="https://www.zeropersoncompany.fun/buy/card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="1200" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" />
+<style>
+:root {
+  --bg: #edece8; --card: #ffffff; --card-2: #f6f5f2; --ink: #191918; --muted: #6d6b66; --line: #dddbd5;
+  --btn: #191918; --btn-ink: #ffffff; --good: #23784f; --warn: #93590f; --bad: #b0332b;
+  --sky-1: #4f7bc4; --sky-2: #8aa6d8; --sky-3: #e7b9a3;
+  --font: "Instrument Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214; --card: #1a1b1e; --card-2: #151619; --ink: #ecebe7; --muted: #9b9a95; --line: #2a2b2f;
+    --btn: #ecebe7; --btn-ink: #111214; --good: #6fd29e; --warn: #e4a95c; --bad: #f08077;
+    --sky-1: #0b1530; --sky-2: #1d2f5e; --sky-3: #7a3f2c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+/* Laid out at the card's own size (480x560) and scaled to whatever size X gives the player, like a video. */
+#view { position: fixed; inset: 0; overflow: hidden; } /* a fixed, clipped frame: the 480px card can't widen a phone's page */
+#stage { position: absolute; left: 0; top: 0; width: 480px; height: 560px; transform-origin: 0 0; }
+button, input { font: inherit; color: inherit; }
+a { color: inherit; }
+.app { display: grid; grid-template-rows: auto auto 1fr auto; height: 100%; }
+.head {
+  color: #fff; padding: 16px 16px 30px;
+  background: radial-gradient(60% 90% at 95% 10%, var(--sky-3), transparent 65%), radial-gradient(80% 90% at 20% 0%, var(--sky-2), transparent 70%), var(--sky-1);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 34px; height: 34px; border-radius: 8px; display: block; background: #111; }
+.brand b { display: block; font-size: 16px; letter-spacing: -0.01em; }
+.brand span { display: block; font-size: 11px; opacity: .8; letter-spacing: .02em; }
+.live { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: rgba(255,255,255,.14); }
+.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #6fd29e; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.stats div { min-width: 0; }
+.stats small { display: block; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+.stats b { display: block; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel { margin: -18px 12px 0; background: var(--card); border-radius: 12px; padding: 14px; display: grid; gap: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.18); position: relative; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.tiny { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; padding: 3px; border-radius: 8px; background: var(--card-2); }
+.seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; cursor: pointer; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.field { background: var(--card-2); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; }
+.field input { width: 100%; border: 0; background: transparent; outline: none; padding: 0; font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.field input::placeholder { color: var(--muted); opacity: .6; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.presets button { border: 0; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 600; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; }
+.presets button:hover { box-shadow: inset 0 0 0 1px var(--muted); }
+#bal { white-space: nowrap; }
+.out b { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.out small, .muted { color: var(--muted); font-size: 12px; }
+.good { color: var(--good); } .warn { color: var(--warn); }
+.btn { width: 100%; border: 0; border-radius: 10px; padding: 14px; background: var(--btn); color: var(--btn-ink); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; text-align: center; text-decoration: none; display: block; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.alt { background: var(--card-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.opens { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.status { font-size: 12px; color: var(--muted); min-height: 1.3em; overflow-wrap: anywhere; margin: 0; }
+.status.err { color: var(--bad); } .status.ok { color: var(--good); }
+.status a { font-weight: 600; }
+.foot { padding: 10px 14px 12px; font-size: 11px; color: var(--muted); display: flex; gap: 6px 12px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+.foot a { text-decoration: none; font-weight: 600; color: var(--ink); }
+</style>
+</head>
+<body>
+<div id="view"><div id="stage"><div class="app">
+  <header class="head">
+    <div class="brand">
+      <img src="/logo.svg" alt="" width="34" height="34" />
+      <div><b>$COMPANY</b><span>The Zero Person Billion Dollar Company</span></div>
+      <span class="live" id="live">Live</span>
+    </div>
+    <div class="stats">
+      <div><small>Price</small><b id="s-price">—</b></div>
+      <div><small>Market cap</small><b id="s-mcap">—</b></div>
+      <div><small>Holders earn</small><b>3% of trades</b></div>
+    </div>
+  </header>
+
+  <main class="panel">
+    <div class="row">
+      <span class="tiny">You pay</span>
+      <div class="seg" role="group" aria-label="Pay with">
+        <button type="button" data-asset="ETH" aria-pressed="true">ETH</button>
+        <button type="button" data-asset="IMD" aria-pressed="false">IMD</button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="row"><input id="amount" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0" aria-label="Amount to pay" /><span class="muted" id="bal"></span></div>
+      <div class="presets" id="presets"></div>
+    </div>
+    <div class="row out">
+      <div><span class="tiny">You get about</span><br /><b id="out">—</b> <small>$COMPANY</small></div>
+      <div style="text-align:right"><small id="out-usd"></small><br /><small id="out-earn"></small></div>
+    </div>
+    <button class="btn" id="go" type="button">Connect wallet</button>
+    <div class="opens" id="opens" hidden>
+      <a class="btn alt" id="open-mm" target="_blank" rel="noopener">Open in MetaMask</a>
+      <a class="btn alt" id="open-cb" target="_blank" rel="noopener">Coinbase Wallet</a>
+    </div>
+    <p class="status" id="status" role="status"></p>
+  </main>
+
+  <div></div>
+  <footer class="foot">
+    <span>4% fee: 3% to holders in IMD + NVDA, GOOGL, AAPL, GME, MSTR.</span>
+    <span><a href="https://www.zeropersoncompany.fun/#docs" target="_blank" rel="noopener">Audited ↗</a> · <a id="site" href="https://www.zeropersoncompany.fun/#swap" target="_blank" rel="noopener">Full site ↗</a></span>
+  </footer>
+</div></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.17.0/ethers.umd.min.js" integrity="sha384-lApM4ELRuFNT7NgNqnXB2zFWgSDdhVvmnOHov2DPJz/2zuNpZImXBeklFr18ilvi" crossorigin="anonymous"></script>
+<script>
+"use strict";
+// Same contracts and routes as the main site (web/index.html).
+const C = {
+  chainId: 4663, chainName: "Robinhood Chain", rpc: "https://robinhood.drpc.org", explorer: "https://robinhoodchain.blockscout.com",
+  site: "https://www.zeropersoncompany.fun",
+  token: "0x5417eAEcE3885552e777fCf133254E641449ae73", hook: "0x8AB5A53c5649f1C1D46E38AD120fD4f86fFC68cc",
+  router: "0x972Ff3a4e6e2ACe2f33aBFf2FC5521CCa919946e", ethRouter: "0x415b050492a66Aebe3A3b11fbD9b0c9B115C3028",
+  imd: "0x5F7Bb59365ce557C26dbcAa4EE9d39A4b95B7127", quoter: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+  stateView: "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b", imdUsdgPool: "0xaf5bcd88bb2b6084ca18319385b61fcbe17ec579032074861004f2668168406f",
+  ethUsdFeed: "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9", imdEthPool: { fee: 10000, tickSpacing: 100, hooks: "0x0000000000000000000000000000000000000000" },
+};
+const ABI = {
+  hook: ["function marketCap(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))"],
+  erc20: ["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)"],
+  router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)"],
+  ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)"],
+  quoter: [
+    "function quoteExactInputSingle(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,bool zeroForOne,uint128 exactAmount,bytes hookData) params) returns (uint256 amountOut,uint256 gasEstimate)",
+    "function quoteExactInput((address exactCurrency,(address intermediateCurrency,uint24 fee,int24 tickSpacing,address hooks,bytes hookData)[] path,uint128 exactAmount) params) returns (uint256 amountOut,uint256 gasEstimate)",
+  ],
+  stateView: ["function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)"],
+  feed: ["function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)"],
+};
+const PRESETS = { ETH: ["0.005", "0.01", "0.05", "0.1"], IMD: ["1", "5", "10", "25"] };
+const SLIPPAGE_BPS = 300n, MIN_HOLDING = 100000;
+const $ = (id) => document.getElementById(id);
+const inFrame = window.self !== window.top;
+function fit() {
+  const w = $("view").clientWidth, h = $("view").clientHeight;
+  const scale = Math.min(w / 480, h / 560, inFrame ? 2 : 1);
+  const x = Math.max(0, (w - 480 * scale) / 2), y = Math.max(0, (h - 560 * scale) / 2);
+  $("stage").style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+}
+addEventListener("resize", fit); fit();
+const S = { asset: "ETH", key: null, prices: { ETH: 0, IMD: 0, COMPANY: 0 }, provider: null, signer: null, account: null, quote: null, seq: 0, busy: false };
+const fmt = (v, d = 2) => (v == null || !isFinite(v) ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: d }));
+const usd = (v, d = 2) => (v == null || !isFinite(v) ? "—" : v > 0 && v < 0.01 ? "<$0.01" : "$" + v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }));
+const sig = (v) => (!v || !isFinite(v) ? "—" : "$" + v.toLocaleString("en-US", { maximumSignificantDigits: 3 }));
+const units = (x) => Number(ethers.formatUnits(x, 18));
+function setStatus(msg, kind, link) {
+  const el = $("status"); el.textContent = msg || ""; el.className = "status" + (kind ? " " + kind : "");
+  if (link) { const a = document.createElement("a"); a.href = link.href; a.target = "_blank"; a.rel = "noopener"; a.textContent = " " + link.text; el.appendChild(a); }
+}
+function errMsg(e) {
+  const m = (e && (e.shortMessage || e.reason || e.message)) || String(e);
+  if (/user rejected|denied|ACTION_REJECTED/i.test(m) || (e && e.code === 4001)) return "You cancelled it in your wallet.";
+  return m.length > 140 ? m.slice(0, 140) + "…" : m;
+}
+
+// Links leave the post: inside X's player the page opens them in a new tab.
+const dappUrl = C.site + "/#swap";
+$("open-mm").href = "https://metamask.app.link/dapp/" + dappUrl.replace(/^https:\/\//, "");
+$("open-cb").href = "https://go.cb-w.com/dapp?cb_url=" + encodeURIComponent(dappUrl);
+
+if (typeof ethers === "undefined") {
+  setStatus("Couldn't load. Use the full site instead.", "err");
+  $("go").textContent = "Buy on the website ↗"; $("go").onclick = () => window.open(dappUrl, "_blank", "noopener");
+  throw new Error("ethers unavailable");
+}
+const reader = new ethers.JsonRpcProvider(C.rpc, C.chainId, { staticNetwork: true, batchMaxCount: 1 });
+
+// ---------------------------------------------------------------- prices
+async function loadPrices() {
+  try {
+    const h = new ethers.Contract(C.hook, ABI.hook, reader), sv = new ethers.Contract(C.stateView, ABI.stateView, reader);
+    const [mcap, slot, feed] = await Promise.all([h.marketCap(C.token), sv.getSlot0(C.imdUsdgPool), new ethers.Contract(C.ethUsdFeed, ABI.feed, reader).latestRoundData()]);
+    const s = Number(slot[0]) / 2 ** 96;
+    S.prices.IMD = s * s * 1e12; // IMD is currency0 against 6-decimal USDG
+    S.prices.ETH = Number(feed[1]) / 1e8;
+    const mcapImd = units(mcap);
+    S.prices.COMPANY = (mcapImd / 1e9) * S.prices.IMD;
+    $("s-price").textContent = sig(S.prices.COMPANY);
+    $("s-mcap").textContent = usd(mcapImd * S.prices.IMD, 0);
+    $("live").hidden = false;
+  } catch (e) { $("live").hidden = true; }
+}
+
+// ---------------------------------------------------------------- quotes (Uniswap V4Quoter: real swap through the hook, 4% fee included)
+async function poolKey() {
+  if (!S.key) {
+    const k = await new ethers.Contract(C.hook, ABI.hook, reader).poolKey(C.token);
+    S.key = { currency0: k[0], currency1: k[1], fee: Number(k[2]), tickSpacing: Number(k[3]), hooks: k[4] };
+  }
+  return S.key;
+}
+async function quote(amount, asset) {
+  const q = new ethers.Contract(C.quoter, ABI.quoter, reader), key = await poolKey();
+  if (asset === "IMD") {
+    const companyIs0 = key.currency0.toLowerCase() === C.token.toLowerCase();
+    return (await q.quoteExactInputSingle.staticCall({ poolKey: key, zeroForOne: !companyIs0, exactAmount: amount, hookData: "0x" }))[0];
+  }
+  const path = [
+    { intermediateCurrency: C.imd, fee: C.imdEthPool.fee, tickSpacing: C.imdEthPool.tickSpacing, hooks: C.imdEthPool.hooks, hookData: "0x" },
+    { intermediateCurrency: C.token, fee: key.fee, tickSpacing: key.tickSpacing, hooks: key.hooks, hookData: "0x" },
+  ];
+  return (await q.quoteExactInput.staticCall({ exactCurrency: ethers.ZeroAddress, path, exactAmount: amount }))[0];
+}
+function parseAmount() {
+  const v = $("amount").value.trim().replace(/,/g, ".").replace(/\.$/, "");
+  if (!v) return null;
+  try { const x = ethers.parseUnits(v, 18); return x > 0n ? x : null; } catch (e) { return null; }
+}
+async function balanceOf(asset) {
+  if (!S.account) return null;
+  return asset === "ETH" ? reader.getBalance(S.account) : new ethers.Contract(C.imd, ABI.erc20, reader).balanceOf(S.account);
+}
+let timer = null;
+async function refresh() {
+  if (S.busy) return;
+  const seq = ++S.seq, asset = S.asset, amount = parseAmount();
+  const bal = await balanceOf(asset).catch(() => null);
+  if (seq !== S.seq) return;
+  $("bal").textContent = bal != null ? "Balance " + fmt(units(bal), 4) : "";
+  if (!amount) { S.quote = null; $("out").textContent = "—"; $("out-usd").textContent = ""; $("out-earn").textContent = ""; return syncButton(bal, null); }
+  try {
+    const out = await quote(amount, asset);
+    if (seq !== S.seq) return;
+    S.quote = { amount, asset, out };
+    const n = units(out);
+    $("out").textContent = fmt(n, 0);
+    $("out-usd").textContent = S.prices.COMPANY ? "≈ " + usd(n * S.prices.COMPANY) : "";
+    $("out-earn").textContent = n >= MIN_HOLDING ? "Earns rewards" : "Under 100,000: no rewards";
+    $("out-earn").className = n >= MIN_HOLDING ? "good" : "warn";
+    if (/Couldn't get a price/.test($("status").textContent)) setStatus("");
+    syncButton(bal, amount);
+  } catch (e) {
+    if (seq !== S.seq) return;
+    S.quote = null; $("out").textContent = "—"; $("out-usd").textContent = ""; $("out-earn").textContent = "";
+    setStatus("Couldn't get a price: " + errMsg(e), "err"); syncButton(bal, null);
+  }
+}
+let needsApproval = false;
+async function syncButton(bal, amount) {
+  const go = $("go");
+  needsApproval = false;
+  if (!S.provider) { go.textContent = "Buy on the website ↗"; go.disabled = false; return; }
+  if (!S.signer) { go.textContent = "Connect wallet"; go.disabled = false; return; }
+  if (!amount) { go.textContent = "Enter an amount"; go.disabled = true; return; }
+  if (bal != null && amount > bal) { go.textContent = "Not enough " + S.asset; go.disabled = true; return; }
+  if (S.asset === "IMD") {
+    const allowance = await new ethers.Contract(C.imd, ABI.erc20, reader).allowance(S.account, C.router).catch(() => 0n);
+    if (allowance < amount) { needsApproval = true; go.textContent = "Approve IMD (step 1 of 2)"; go.disabled = false; return; }
+  }
+  go.textContent = "Buy $COMPANY"; go.disabled = false;
+}
+function setAsset(a) {
+  S.asset = a;
+  document.querySelectorAll("[data-asset]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.asset === a)));
+  $("presets").innerHTML = PRESETS[a].map((v) => `<button type="button" data-v="${v}">${v} ${a}</button>`).join("");
+  $("amount").value = PRESETS[a][1];
+  setStatus(""); refresh();
+}
+document.querySelectorAll("[data-asset]").forEach((b) => b.addEventListener("click", () => setAsset(b.dataset.asset)));
+$("presets").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (!b) return; $("amount").value = b.dataset.v; setStatus(""); refresh(); });
+$("amount").addEventListener("input", (e) => {
+  const v = e.target.value.replace(/,/g, ".").replace(/[^\d.]/g, ""), i = v.indexOf(".");
+  e.target.value = i === -1 ? v : v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, "").slice(0, 18);
+  setStatus(""); clearTimeout(timer); timer = setTimeout(refresh, 300);
+});
+
+// ---------------------------------------------------------------- wallet (EIP-6963 extensions, then window.ethereum)
+const announced = [];
+window.addEventListener("eip6963:announceProvider", (e) => { if (e.detail && e.detail.provider) announced.push(e.detail.provider); });
+window.dispatchEvent(new Event("eip6963:requestProvider"));
+function pickProvider() { return announced[0] || window.ethereum || null; }
+async function ensureChain(p) {
+  const hex = "0x" + C.chainId.toString(16);
+  try { await p.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] }); }
+  catch (e) {
+    if (e && (e.code === 4902 || /unrecognized|not added|unknown chain/i.test(e.message || ""))) {
+      await p.request({ method: "wallet_addEthereumChain", params: [{ chainId: hex, chainName: C.chainName, rpcUrls: [C.rpc], nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, blockExplorerUrls: [C.explorer] }] });
+    } else throw e;
+  }
+}
+async function connect() {
+  const p = S.provider;
+  await p.request({ method: "eth_requestAccounts" });
+  await ensureChain(p);
+  S.signer = await new ethers.BrowserProvider(p).getSigner();
+  S.account = await S.signer.getAddress();
+  $("site").href = C.site + "/#portfolio?address=" + S.account;
+}
+$("go").addEventListener("click", async () => {
+  if (!S.provider) { window.open(dappUrl, "_blank", "noopener"); return; }
+  if (S.busy) return;
+  S.busy = true; $("go").disabled = true;
+  try {
+    if (!S.signer) { setStatus("Connect in your wallet…"); await connect(); setStatus(""); return; }
+    const amount = parseAmount(); if (!amount) return;
+    if (S.asset === "IMD" && needsApproval) {
+      setStatus("Approve IMD in your wallet…");
+      const tx = await new ethers.Contract(C.imd, ABI.erc20, S.signer).approve(C.router, amount);
+      setStatus("Approving…"); await tx.wait();
+      setStatus("Approved. Now press Buy $COMPANY.", "ok");
+    } else {
+      const out = await quote(amount, S.asset); // fresh quote for the minimum
+      const minOut = (out * (10000n - SLIPPAGE_BPS)) / 10000n, deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
+      setStatus("Confirm the buy in your wallet…");
+      const tx = S.asset === "ETH"
+        ? await new ethers.Contract(C.ethRouter, ABI.ethRouter, S.signer).buyWithEth(C.token, minOut, deadline, { value: amount })
+        : await new ethers.Contract(C.router, ABI.router, S.signer).buy(C.token, amount, minOut, deadline);
+      setStatus("Buying…");
+      const rc = await tx.wait();
+      if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+      setStatus(`Bought about ${fmt(units(out), 0)} $COMPANY.`, "ok", { href: C.explorer + "/tx/" + tx.hash, text: "View ↗" });
+      loadPrices();
+    }
+  } catch (e) { setStatus(errMsg(e), "err"); }
+  finally { S.busy = false; refresh(); }
+});
+
+// No wallet here (X's phone app, or a browser without an extension): open the site in a wallet instead.
+setTimeout(() => {
+  S.provider = pickProvider();
+  $("opens").hidden = !!S.provider;
+  syncButton(null, parseAmount());
+  // A wallet that already approved this site reconnects without a prompt.
+  if (S.provider) S.provider.request({ method: "eth_accounts" }).then(async (a) => {
+    if (!a || !a.length) return;
+    const chain = parseInt(await S.provider.request({ method: "eth_chainId" }), 16);
+    if (chain !== C.chainId) return;
+    S.signer = await new ethers.BrowserProvider(S.provider).getSigner(a[0]); S.account = await S.signer.getAddress();
+    $("site").href = C.site + "/#portfolio?address=" + S.account;
+    refresh();
+  }).catch(() => {});
+}, 300);
+
+setAsset("ETH");
+loadPrices().then(refresh);
+setInterval(() => { if (!document.hidden && !S.busy) { loadPrices(); refresh(); } }, 30000);
+</script>
+</body>
+</html>
