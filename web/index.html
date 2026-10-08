@@ -635,6 +635,23 @@ footer p { max-width: 95ch; }
           <div class="card big-metric"><span class="tiny">Not credited yet</span><span class="v num" id="ad-waiting">—</span><p>Fees still in the hook, and IMD waiting to buy stocks.</p></div>
         </div>
         <div class="card" style="display:grid;gap:16px">
+          <div class="side-head"><h3>Credit waiting rewards</h3><span class="caps num" id="cr-total">—</span></div>
+          <dl class="kv">
+            <div><dt>Fees waiting in the hook</dt><dd class="num" id="cr-held">—</dd></div>
+            <div><dt>IMD waiting to buy stocks</dt><dd class="num" id="cr-reserves">—</dd></div>
+            <div><dt>Stock reserves</dt><dd class="num" id="cr-per">—</dd></div>
+            <div><dt>Each round buys up to</dt><dd class="num" id="cr-round">—</dd></div>
+            <div><dt>Next round</dt><dd class="num" id="cr-next">—</dd></div>
+          </dl>
+          <p style="color:var(--muted);font-size:13px"><b style="color:var(--ink)">Credit waiting fees</b> moves the hook's fees to holders: half as IMD right away, half into the stock reserves. <b style="color:var(--ink)">Buy stocks</b> runs conversion rounds, one a minute (the contract's limit), until the reserves are spent, and credits the stocks to holders. Each is a transaction you sign. Anyone can do either on-chain; claims and trades through this site do the same.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn" id="cr-flush" type="button" disabled>Credit waiting fees</button>
+            <button class="btn" id="cr-buy" type="button" disabled>Buy stocks</button>
+            <button class="btn outline" id="cr-stop" type="button" hidden>Stop</button>
+          </div>
+          <p class="status" id="cr-status" role="status"></p>
+        </div>
+        <div class="card" style="display:grid;gap:16px">
           <div class="side-head">
             <h3>Wallets <span class="pill" id="ad-count" style="vertical-align:middle;margin-left:6px">—</span></h3>
             <div class="ad-tools">
@@ -825,9 +842,10 @@ const ABI = {
     "function rewardsOf(address) view returns (uint256[6])", "function lastActive(address) view returns (uint256)", "function totalDistributed(uint256) view returns (uint256)",
     "function claim() returns (uint256[6])", "function nonces(address) view returns (uint256)", "function pendingConvert(uint256) view returns (uint256)",
     "function isSystemAccount(address) view returns (bool)", "function expiredRewardsOf(address,uint256) view returns (uint256)", "function owed(uint256) view returns (uint256)", "function recycleMany(address[])",
+    "function convert() returns (uint256[6])", "function maxConvert() view returns (uint256)", "function stockRoundLimit(uint256) view returns (uint256)", "function lastConvert(uint256) view returns (uint256)",
   ],
   hook: ["function marketCap(address) view returns (uint256)", "function pendingProtocolFees(address) view returns (uint256)", "function poolKey(address) view returns ((address,address,uint24,int24,address))",
-    "function pendingHolderFees(address) view returns (uint256)", "function feeRecipient() view returns (address)", "function collectProtocolFees(address)"],
+    "function pendingHolderFees(address) view returns (uint256)", "function feeRecipient() view returns (address)", "function collectProtocolFees(address)", "function flush(address)"],
   router: ["function buy(address,uint256,uint256,uint256) payable returns (uint256)", "function sell(address,uint256,uint256,uint256) returns (uint256)", "function sellWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
   ethRouter: ["function buyWithEth(address,uint256,uint256) payable returns (uint256)", "function sellForEth(address,uint256,uint256,uint256) returns (uint256)", "function sellForEthWithPermit(address,uint256,uint256,uint256,uint8,bytes32,bytes32) returns (uint256)"],
   // V4Quoter runs the real swap (hook fee included) and reverts with the result, so it is called with eth_call.
@@ -1305,7 +1323,9 @@ async function loadAdmin(force) {
     return;
   }
   gate.hidden = true; body.hidden = false;
-  if (!launched() || !reader || admin.loading) return;
+  if (!launched() || !reader) return;
+  if (!credit.running) loadCredit(); // small read: shows before the wallet table, which takes longer
+  if (admin.loading) return;
   if (!force && admin.totals && Date.now() - admin.loadedAt < 60000) { renderAdmin(); return; }
   admin.loading = true;
   const st = $("ad-status");
@@ -1410,6 +1430,108 @@ $("ad-recycle").addEventListener("click", async () => {
   admin.recycling = false;
   await loadAdmin(true);
 });
+
+// ---------------------------------------------------------------- admin: credit waiting rewards
+// Fees wait in the hook until a flush, and the stock half waits as IMD until conversion rounds buy the stocks. A round
+// spends at most maxConvert() (20 IMD) split over the five stocks, each capped by its own pool, and each stock can be
+// bought once a minute. convert() skips a purchase it lacks gas for, so rounds always send an 8,000,000 gas limit.
+const credit = { data: null, running: false, stop: false };
+const CREDIT_DUST = 10n ** 16n; // 0.01 IMD: a reserve below this counts as spent
+async function readCredit() {
+  const t = new ethers.Contract(CONFIG.token, ABI.token, reader), h = new ethers.Contract(CONFIG.hook, ABI.hook, reader);
+  const stocks = CONFIG.assets.slice(1).map((_, j) => j + 1);
+  const [r, block] = await Promise.all([
+    retry(() => multiRead([[h, "pendingHolderFees", [CONFIG.token]], [t, "maxConvert"],
+      ...stocks.map((i) => [t, "pendingConvert", [i]]), ...stocks.map((i) => [t, "stockRoundLimit", [i]]), ...stocks.map((i) => [t, "lastConvert", [i]])])),
+    retry(() => reader.getBlock("latest")),
+  ]);
+  const k = stocks.length, pc = r.slice(2, 2 + k), lim = r.slice(2 + k, 2 + 2 * k), last = r.slice(2 + 2 * k).map(Number);
+  const share = r[1] / BigInt(k), perRound = lim.map((l) => (l < share ? l : share));
+  const due = stocks.map((_, j) => pc[j] >= CREDIT_DUST);
+  const rounds = Math.max(0, ...stocks.map((_, j) => (due[j] && perRound[j] > 0n ? Math.ceil(units(pc[j]) / units(perRound[j])) : 0)));
+  const nextAt = Math.max(0, ...stocks.map((_, j) => (due[j] ? last[j] + 60 : 0)));
+  return { held: r[0], pc, perRound, due, rounds, nextAt, now: Number(block.timestamp) };
+}
+function renderCredit(c) {
+  credit.data = c;
+  const imd = priceOf("IMD"), reserves = c.pc.reduce((x, v) => x + units(v), 0);
+  $("cr-held").textContent = `${fmtTok(units(c.held))} IMD (${fmtUsd(units(c.held) * imd, 2)})`;
+  $("cr-reserves").textContent = `${fmtTok(reserves)} IMD (${fmtUsd(reserves * imd, 2)})`;
+  $("cr-per").textContent = CONFIG.assets.slice(1).map((a, j) => `${a.sym} ${fmtTok(units(c.pc[j]))}`).join(" · ");
+  $("cr-round").textContent = CONFIG.assets.slice(1).map((a, j) => `${a.sym} ${fmtTok(units(c.perRound[j]))}`).join(" · ") + " IMD";
+  const wait = c.nextAt - c.now;
+  $("cr-next").textContent = !c.rounds ? "Nothing to buy" : wait > 0 ? `In ${wait}s · about ${c.rounds} round${c.rounds === 1 ? "" : "s"} left` : `Now · about ${c.rounds} round${c.rounds === 1 ? "" : "s"} left`;
+  $("cr-total").textContent = fmtUsd((units(c.held) + reserves) * imd, 2);
+  syncCreditButtons();
+}
+function syncCreditButtons() {
+  const c = credit.data, busy = credit.running;
+  $("cr-flush").disabled = busy || !c || c.held === 0n;
+  $("cr-buy").disabled = busy || !c || !c.rounds;
+  $("cr-buy").textContent = c && c.rounds ? `Buy stocks (about ${c.rounds} round${c.rounds === 1 ? "" : "s"})` : "Buy stocks";
+  $("cr-stop").hidden = !busy;
+}
+async function loadCredit() {
+  if (!isAdmin() || !launched() || !reader) return;
+  try { renderCredit(await readCredit()); } catch (e) { setStatus($("cr-status"), "Couldn't read the reserves: " + errMsg(e), "err"); }
+}
+function waitSeconds(sec, onTick) {
+  return new Promise((resolve) => {
+    let left = Math.ceil(sec); onTick(left);
+    const id = setInterval(() => { left--; if (credit.stop || left <= 0) { clearInterval(id); resolve(); } else onTick(left); }, 1000);
+  });
+}
+$("cr-flush").addEventListener("click", async () => {
+  const st = $("cr-status");
+  if (!isAdmin()) return;
+  if (!state.signer) return connect();
+  credit.running = true; syncCreditButtons();
+  try {
+    setStatus(st, "Confirm in your wallet…");
+    const tx = await new ethers.Contract(CONFIG.hook, ABI.hook, state.signer).flush(CONFIG.token);
+    setStatus(st, "Crediting…");
+    const rc = await tx.wait();
+    if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+    setStatusLink(st, "Credited. Holders received the IMD half; the stock half is in the reserves, ready for Buy stocks.", CONFIG.explorer + "/tx/" + tx.hash, "ok");
+  } catch (e) { setStatus(st, errMsg(e), "err"); }
+  credit.running = false;
+  await loadCredit(); loadAdmin(true);
+});
+$("cr-buy").addEventListener("click", async () => {
+  const st = $("cr-status");
+  if (!isAdmin()) return;
+  if (!state.signer) return connect();
+  credit.running = true; credit.stop = false; syncCreditButtons();
+  const t = new ethers.Contract(CONFIG.token, ABI.token, state.signer);
+  let done = 0, hash = null;
+  try {
+    for (let guard = 0; guard < 60 && !credit.stop; guard++) {
+      const before = await readCredit(); renderCredit(before);
+      if (!before.rounds) break;
+      const wait = before.nextAt - before.now;
+      if (wait > 0) {
+        await waitSeconds(wait + 2, (s) => setStatus(st, `Round ${done + 1}: the contract allows the next round in ${s}s…`));
+        if (credit.stop) break;
+      }
+      setStatus(st, `Round ${done + 1} of about ${done + before.rounds}: confirm in your wallet…`);
+      const tx = await t.convert({ gasLimit: 8_000_000n });
+      setStatus(st, `Round ${done + 1}: buying stocks…`);
+      const rc = await tx.wait();
+      if (!rc || rc.status !== 1) throw new Error("The transaction failed on-chain.");
+      const after = await readCredit(); renderCredit(after);
+      if (!before.pc.some((v, j) => after.pc[j] < v)) {
+        setStatusLink(st, "This round bought nothing: a price check or pool limit skipped every stock. Try again later.", CONFIG.explorer + "/tx/" + tx.hash, "err");
+        hash = null; done = -1; break;
+      }
+      done++; hash = tx.hash;
+    }
+    if (done > 0) setStatusLink(st, `${credit.stop ? "Stopped after" : "Done:"} ${done} round${done === 1 ? "" : "s"}. The stocks bought are credited to holders.`, CONFIG.explorer + "/tx/" + hash, "ok");
+    else if (done === 0) setStatus(st, credit.stop ? "Stopped." : "Nothing to buy.");
+  } catch (e) { setStatus(st, (done > 0 ? `After ${done} round${done === 1 ? "" : "s"}: ` : "") + errMsg(e), "err"); }
+  credit.running = false; credit.stop = false;
+  await loadCredit(); loadAdmin(true);
+});
+$("cr-stop").addEventListener("click", () => { credit.stop = true; setStatus($("cr-status"), "Stopping after this step…"); });
 
 // ---------------------------------------------------------------- swap
 // Quotes come from Uniswap's V4Quoter, which runs the real swap through the hook, so they need no wallet and already
